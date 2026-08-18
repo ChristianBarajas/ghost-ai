@@ -1,14 +1,13 @@
 import argparse
 
 from ghost.executor.browser import replay_workflow
-
 from ghost.memory.database import (
     initialize_database,
     create_workflow,
     get_actions,
 )
-
 from ghost.observer.browser import observe_browser
+from ghost.skills.generalizer import generalize_workflow
 
 
 def main():
@@ -22,6 +21,10 @@ def main():
         dest="command"
     )
 
+    # --------------------------------------------------
+    # OBSERVE
+    # --------------------------------------------------
+
     observe_parser = subparsers.add_parser(
         "observe",
         help="Observe and record a workflow.",
@@ -33,15 +36,23 @@ def main():
         default="Unnamed Workflow",
     )
 
+    # --------------------------------------------------
+    # REPLAY
+    # --------------------------------------------------
+
     replay_parser = subparsers.add_parser(
         "replay",
         help="Replay a recorded workflow.",
     )
 
     replay_parser.add_argument(
-    "workflow_id",
-    type=int,
+        "workflow_id",
+        type=int,
     )
+
+    # --------------------------------------------------
+    # SHOW
+    # --------------------------------------------------
 
     show_parser = subparsers.add_parser(
         "show",
@@ -53,7 +64,25 @@ def main():
         type=int,
     )
 
+    # --------------------------------------------------
+    # GENERALIZE
+    # --------------------------------------------------
+
+    generalize_parser = subparsers.add_parser(
+        "generalize",
+        help="Convert a recorded workflow into a reusable skill.",
+    )
+
+    generalize_parser.add_argument(
+        "workflow_id",
+        type=int,
+    )
+
     args = parser.parse_args()
+
+    # --------------------------------------------------
+    # COMMAND HANDLING
+    # --------------------------------------------------
 
     if args.command == "observe":
         workflow_id = create_workflow(args.name)
@@ -74,7 +103,9 @@ def main():
         )
 
     elif args.command == "show":
-        actions = get_actions(args.workflow_id)
+        actions = get_actions(
+            args.workflow_id
+        )
 
         print()
 
@@ -84,6 +115,44 @@ def main():
                 f"target={action['target']} "
                 f"value={action['value']} "
                 f"url={action['url']}"
+            )
+
+    elif args.command == "generalize":
+        skill = generalize_workflow(
+            args.workflow_id
+        )
+
+        print()
+        print("👻 GHOST SKILL")
+        print("----------------")
+        print(f"Name: {skill.name}")
+        print(f"Description: {skill.description}")
+
+        print()
+        print("VARIABLES")
+
+        if not skill.variables:
+            print("None")
+
+        for variable in skill.variables:
+            print(
+                f"- {variable.name} = "
+                f'"{variable.example_value}"'
+            )
+
+        print()
+        print("STEPS")
+
+        for index, step in enumerate(
+            skill.steps,
+            start=1,
+        ):
+            print(
+                f"{index}. "
+                f"{step.action_type} "
+                f"target={step.target} "
+                f"value={step.value} "
+                f"url={step.url}"
             )
 
     else:
