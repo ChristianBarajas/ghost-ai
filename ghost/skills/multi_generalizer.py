@@ -18,12 +18,18 @@ def meaningful_actions(workflow_id: int):
         value = action["value"]
         target = action["target"]
 
+        # Ignore empty input events.
         if action_type == "input":
             if value is None or value.strip() == "":
                 continue
 
+        # Ignore low-value click noise.
         if action_type == "click":
-            if target in {"img", "svg", "VERIFY"}:
+            if target in {
+                "img",
+                "svg",
+                "VERIFY",
+            }:
                 continue
 
         clean.append(action)
@@ -64,6 +70,10 @@ def learn_from_demonstrations(workflow_ids):
             f"{' → '.join(signature)}"
         )
 
+    # --------------------------------------------------
+    # FIND MEANINGFUL INPUTS
+    # --------------------------------------------------
+
     input_actions = []
 
     for actions in demonstrations:
@@ -86,6 +96,10 @@ def learn_from_demonstrations(workflow_ids):
         raise ValueError(
             "Not every demonstration contains meaningful input."
         )
+
+    # --------------------------------------------------
+    # FIND SEARCH SUBMISSIONS
+    # --------------------------------------------------
 
     search_clicks = []
 
@@ -111,7 +125,10 @@ def learn_from_demonstrations(workflow_ids):
             "Not every demonstration looks like a search workflow."
         )
 
-    # Find the most common input target.
+    # --------------------------------------------------
+    # IDENTIFY VARIABLE INPUT
+    # --------------------------------------------------
+
     input_targets = [
         action["target"]
         for action in input_actions
@@ -126,6 +143,38 @@ def learn_from_demonstrations(workflow_ids):
         for action in input_actions
     ]
 
+    # --------------------------------------------------
+    # FIND COMMON STARTING URL
+    # --------------------------------------------------
+
+    first_navigations = []
+
+    for actions in demonstrations:
+        navigation = next(
+            (
+                action
+                for action in actions
+                if action["action_type"] == "navigate"
+            ),
+            None,
+        )
+
+        if navigation:
+            first_navigations.append(
+                navigation["url"]
+            )
+
+    common_start_url = None
+
+    if first_navigations:
+        common_start_url = Counter(
+            first_navigations
+        ).most_common(1)[0][0]
+
+    # --------------------------------------------------
+    # REPORT DISCOVERED PATTERN
+    # --------------------------------------------------
+
     print()
     print("👻 PATTERN FOUND")
     print("----------------")
@@ -133,6 +182,7 @@ def learn_from_demonstrations(workflow_ids):
     print("- contain user text input")
     print("- contain a search submission")
     print("- differ in input value")
+    print("- share a common starting location")
 
     print()
     print("Observed values:")
@@ -141,6 +191,10 @@ def learn_from_demonstrations(workflow_ids):
         print(
             f'- "{value}"'
         )
+
+    # --------------------------------------------------
+    # CREATE GENERALIZED SKILL
+    # --------------------------------------------------
 
     return Skill(
         name="web_search",
@@ -153,12 +207,16 @@ def learn_from_demonstrations(workflow_ids):
                 name="query",
                 example_value=example_values[0],
                 description=(
-                    "Variable search query "
-                    "identified across demonstrations."
+                    "Variable search query identified "
+                    "across demonstrations."
                 ),
             )
         ],
         steps=[
+            SkillStep(
+                action_type="navigate",
+                url=common_start_url,
+            ),
             SkillStep(
                 action_type="input",
                 target=common_target,

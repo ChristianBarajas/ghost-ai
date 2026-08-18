@@ -10,6 +10,7 @@ from ghost.observer.browser import observe_browser
 from ghost.skills.generalizer import generalize_workflow
 from ghost.skills.storage import save_skill
 from ghost.skills.runner import run_skill
+from ghost.skills.multi_generalizer import learn_from_demonstrations
 
 
 def main():
@@ -93,9 +94,23 @@ def main():
         "--query",
     )
 
+    # COMPARE
+    compare_parser = subparsers.add_parser(
+        "compare",
+        help="Compare multiple workflow demonstrations.",
+    )
+
+    compare_parser.add_argument(
+        "workflow_ids",
+        nargs="+",
+        type=int,
+    )
+
     args = parser.parse_args()
 
+    # ------------------------------------------
     # COMMAND HANDLING
+    # ------------------------------------------
 
     if args.command == "observe":
         workflow_id = create_workflow(
@@ -201,6 +216,46 @@ def main():
             args.skill_name,
             variables,
         )
+
+    elif args.command == "compare":
+        skill = learn_from_demonstrations(
+            args.workflow_ids
+        )
+
+        print()
+        print("👻 MULTI-DEMO SKILL")
+        print("-------------------")
+        print(f"Name: {skill.name}")
+        print(
+            f"Description: {skill.description}"
+        )
+
+        print()
+        print("VARIABLES")
+
+        if not skill.variables:
+            print("None")
+
+        for variable in skill.variables:
+            print(
+                f"- {variable.name} = "
+                f'"{variable.example_value}"'
+            )
+
+        print()
+        print("STEPS")
+
+        for index, step in enumerate(
+            skill.steps,
+            start=1,
+        ):
+            print(
+                f"{index}. "
+                f"{step.action_type} "
+                f"target={step.target} "
+                f"value={step.value} "
+                f"url={step.url}"
+            )
 
     else:
         parser.print_help()
