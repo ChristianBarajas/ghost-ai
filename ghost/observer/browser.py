@@ -231,11 +231,18 @@ def observe_browser(workflow_id: int):
         )
 
         # Only wait if the user did not manually close the page.
-        if not page.is_closed():
-            page.wait_for_timeout(250)
+        try:
+            if not page.is_closed():
+                page.wait_for_timeout(250)
+        except Exception:
+            pass
 
-        if not context.pages:
-            return
+        try:
+            context.close()
+        except Exception:
+            pass
 
-        context.close()
-        browser.close()
+        try:
+            browser.close()
+        except Exception:
+            pass

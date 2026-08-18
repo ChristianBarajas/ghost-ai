@@ -16,6 +16,60 @@ def replace_variables(value, variables):
     return value
 
 
+def verify_skill(skill, page, variables):
+    print()
+    print("👻 VERIFYING RESULT")
+    print("-------------------")
+
+    if skill.name == "web_search":
+        query = variables.get("query")
+
+        if not query:
+            print("❌ No search query was provided.")
+            return False
+
+        current_url = page.url.lower()
+
+        query_words = [
+            word.lower()
+            for word in query.split()
+            if len(word) > 2
+        ]
+
+        url_match = any(
+            word in current_url
+            for word in query_words
+        )
+
+        try:
+            page_text = page.locator(
+                "body"
+            ).inner_text().lower()
+        except Exception:
+            page_text = ""
+
+        page_match = any(
+            word in page_text
+            for word in query_words
+        )
+
+        if url_match or page_match:
+            print("✅ Search results detected.")
+            print(f"✅ Current page: {page.url}")
+            return True
+
+        print("❌ Search results could not be verified.")
+        print(f"Current page: {page.url}")
+
+        return False
+
+    print(
+        f"⚠️ No verification rule exists for '{skill.name}'."
+    )
+
+    return None
+
+
 def run_skill(skill_name: str, variables: dict):
     skill = load_skill(skill_name)
 
@@ -49,10 +103,6 @@ def run_skill(skill_name: str, variables: dict):
                 variables,
             )
 
-            # ------------------------------------------
-            # NAVIGATE
-            # ------------------------------------------
-
             if step.action_type == "navigate":
                 print(f"👻 OPEN → {url}")
 
@@ -60,10 +110,6 @@ def run_skill(skill_name: str, variables: dict):
                     url,
                     wait_until="domcontentloaded",
                 )
-
-            # ------------------------------------------
-            # INPUT
-            # ------------------------------------------
 
             elif step.action_type == "input":
                 print(
@@ -100,18 +146,11 @@ def run_skill(skill_name: str, variables: dict):
                     value
                 )
 
-            # ------------------------------------------
-            # CLICK / SUBMIT
-            # ------------------------------------------
-
             elif step.action_type == "click":
                 print(
                     f"👻 ACTION → {target}"
                 )
 
-                # Search workflows are more reliable
-                # when submitted directly from the
-                # input that received the query.
                 if (
                     skill.name == "web_search"
                     and target
@@ -122,32 +161,24 @@ def run_skill(skill_name: str, variables: dict):
                         "👻 SUBMIT → pressing ENTER"
                     )
 
-                    old_url = page.url
-
                     last_input_locator.press(
                         "Enter"
                     )
 
                     try:
-                        page.wait_for_url(
-                            lambda current_url:
-                                current_url != old_url,
+                        page.wait_for_load_state(
+                            "domcontentloaded",
                             timeout=5000,
                         )
-
-                        print(
-                            "👻 RESULT → page changed"
-                        )
-
                     except Exception:
-                        print(
-                            "⚠️ No URL change detected "
-                            "after ENTER."
-                        )
+                        pass
+
+                    page.wait_for_timeout(
+                        1000
+                    )
 
                     continue
 
-                # Normal click behavior for non-search skills.
                 locator = page.get_by_role(
                     "button",
                     name=target,
@@ -179,9 +210,33 @@ def run_skill(skill_name: str, variables: dict):
                     750
                 )
 
+        result = verify_skill(
+            skill,
+            page,
+            variables,
+        )
+
         print()
-        print("✅ Skill finished.")
-        print("Press ENTER to close the browser.")
+
+        if result is True:
+            print(
+                "✅ GHOST verified successful completion."
+            )
+
+        elif result is False:
+            print(
+                "❌ GHOST could not verify completion."
+            )
+
+        else:
+            print(
+                "⚠️ Workflow finished without verification."
+            )
+
+        print()
+        print(
+            "Press ENTER to close the browser."
+        )
 
         input()
 
