@@ -8,6 +8,8 @@ from ghost.memory.database import (
 )
 from ghost.observer.browser import observe_browser
 from ghost.skills.generalizer import generalize_workflow
+from ghost.skills.storage import save_skill
+from ghost.skills.runner import run_skill
 
 
 def main():
@@ -21,10 +23,7 @@ def main():
         dest="command"
     )
 
-    # --------------------------------------------------
     # OBSERVE
-    # --------------------------------------------------
-
     observe_parser = subparsers.add_parser(
         "observe",
         help="Observe and record a workflow.",
@@ -36,10 +35,7 @@ def main():
         default="Unnamed Workflow",
     )
 
-    # --------------------------------------------------
     # REPLAY
-    # --------------------------------------------------
-
     replay_parser = subparsers.add_parser(
         "replay",
         help="Replay a recorded workflow.",
@@ -50,10 +46,7 @@ def main():
         type=int,
     )
 
-    # --------------------------------------------------
     # SHOW
-    # --------------------------------------------------
-
     show_parser = subparsers.add_parser(
         "show",
         help="Show actions from a workflow.",
@@ -64,10 +57,7 @@ def main():
         type=int,
     )
 
-    # --------------------------------------------------
     # GENERALIZE
-    # --------------------------------------------------
-
     generalize_parser = subparsers.add_parser(
         "generalize",
         help="Convert a recorded workflow into a reusable skill.",
@@ -78,20 +68,47 @@ def main():
         type=int,
     )
 
+    # LEARN
+    learn_parser = subparsers.add_parser(
+        "learn",
+        help="Generalize and save a workflow as a reusable skill.",
+    )
+
+    learn_parser.add_argument(
+        "workflow_id",
+        type=int,
+    )
+
+    # RUN SKILL
+    run_skill_parser = subparsers.add_parser(
+        "run-skill",
+        help="Run a saved GHOST skill.",
+    )
+
+    run_skill_parser.add_argument(
+        "skill_name",
+    )
+
+    run_skill_parser.add_argument(
+        "--query",
+    )
+
     args = parser.parse_args()
 
-    # --------------------------------------------------
     # COMMAND HANDLING
-    # --------------------------------------------------
 
     if args.command == "observe":
-        workflow_id = create_workflow(args.name)
+        workflow_id = create_workflow(
+            args.name
+        )
 
         print(
             f"\n👻 Created workflow #{workflow_id}: {args.name}"
         )
 
-        observe_browser(workflow_id)
+        observe_browser(
+            workflow_id
+        )
 
         print(
             f"\n✅ Workflow #{workflow_id} saved."
@@ -126,7 +143,9 @@ def main():
         print("👻 GHOST SKILL")
         print("----------------")
         print(f"Name: {skill.name}")
-        print(f"Description: {skill.description}")
+        print(
+            f"Description: {skill.description}"
+        )
 
         print()
         print("VARIABLES")
@@ -154,6 +173,34 @@ def main():
                 f"value={step.value} "
                 f"url={step.url}"
             )
+
+    elif args.command == "learn":
+        skill = generalize_workflow(
+            args.workflow_id
+        )
+
+        path = save_skill(
+            skill
+        )
+
+        print()
+        print(
+            f"👻 Learned skill: {skill.name}"
+        )
+        print(
+            f"💾 Saved to: {path}"
+        )
+
+    elif args.command == "run-skill":
+        variables = {}
+
+        if args.query:
+            variables["query"] = args.query
+
+        run_skill(
+            args.skill_name,
+            variables,
+        )
 
     else:
         parser.print_help()
