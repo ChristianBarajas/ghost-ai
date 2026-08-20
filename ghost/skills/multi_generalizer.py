@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from ghost.memory.database import get_actions
 from ghost.models.skill import (
     Skill,
@@ -16,10 +18,12 @@ def meaningful_actions(workflow_id: int):
         value = action["value"]
         target = action["target"]
 
+        # Ignore empty text input.
         if action_type == "input":
             if value is None or value.strip() == "":
                 continue
 
+        # Ignore low-value click noise.
         if action_type == "click":
             if target in {
                 "img",
@@ -49,187 +53,178 @@ def find_meaningful_input(actions):
     )
 
 
-def has_search_submission(actions, input_action):
-    if input_action is None:
-        return False
+def get_domain(url):
+    if not url:
+        return None
 
-    input_id = input_action["id"]
+    parsed = urlparse(url)
 
-    # Search can be submitted by clicking a search control.
-    search_click = next(
+    return parsed.netloc.lower()
+
+
+def find_starting_navigation(actions):
+    return next(
         (
             action
             for action in actions
-            if action["id"] > input_id
-            and action["action_type"] == "click"
-            and action["target"]
-            and "search" in action["target"].lower()
+            if action["action_type"] == "navigate"
         ),
         None,
     )
 
-    if search_click:
-        return True
 
-    # Or by pressing ENTER, which usually causes navigation.
-    later_navigation = next(
+def find_search_results_navigation(
+    actions,
+    input_action,
+):
+    if input_action is None:
+        return None
+
+    input_id = input_action["id"]
+
+    return next(
         (
             action
             for action in actions
             if action["id"] > input_id
             and action["action_type"] == "navigate"
+            and action["url"]
+            and (
+                "/search" in action["url"].lower()
+                or "?q=" in action["url"].lower()
+                or "&q=" in action["url"].lower()
+            )
         ),
         None,
     )
 
-    if later_navigation:
-        return True
 
-    return False
+def find_external_navigation(
+    actions,
+    search_results_action,
+):
+    if search_results_action is None:
+        return None
+
+    results_id = search_results_action["id"]
+    search_domain = get_domain(
+        search_results_action["url"]
+    )
+
+    for action in actions:
+        if action["id"] <= results_id:
+            continue
+
+        if action["action_type"] != "navigate":
+            continue
+
+        url = action["url"]
+
+        if not url:
+            continue
+
+        domain = get_domain(url)
+
+        if not domain:
+            continue
+
+        # Different domain means the workflow
+        # continued beyond the search engine.
+        if domain != search_domain:
+            return action
+
+    return None
 
 
-def learn_from_demonstrations(workflow_ids):
-    demonstrations = [
-        meaningful_actions(workflow_id)
-        for workflow_id in workflow_ids
-    ]
-
-    if not demonstrations:
-        raise ValueError(
-            "No demonstrations provided."
-        )
-
-    print()
-    print("👻 COMPARING DEMONSTRATIONS")
-    print("---------------------------")
-
-    for workflow_id, actions in zip(
-        workflow_ids,
-        demonstrations,
+def find_result_click(
+    actions,
+    search_results_action,
+    external_navigation,
+):
+    if (
+        search_results_action is None
+        or external_navigation is None
     ):
-        signature = [
-            action_signature(action)
-            for action in actions
-        ]
+        return None
 
-        print(
-            f"Workflow #{workflow_id}: "
-            f"{' → '.join(signature)}"
-        )
+    start_id = search_results_action["id"]
+    end_id = external_navigation["id"]
 
-    # ------------------------------------------
-    # FIND INPUTS
-    # ------------------------------------------
-
-    input_actions = [
-        find_meaningful_input(actions)
-        for actions in demonstrations
+    clicks = [
+        action
+        for action in actions
+        if action["action_type"] == "click"
+        and start_id < action["id"] < end_id
+        and action["target"]
     ]
 
-    if any(
-        action is None
-        for action in input_actions
-    ):
-        raise ValueError(
-            "Not every demonstration contains meaningful input."
-        )
+    if not clicks:
+        return None
 
-    # ------------------------------------------
-    # CONFIRM COMMON SEARCH BEHAVIOR
-    # ------------------------------------------
+    # Usually the final meaningful click before
+    # leaving the search engine is the chosen result.
+    return clicks[-1]
 
-    search_submissions = [
-        has_search_submission(
-            actions,
-            input_action,
-        )
-        for actions, input_action in zip(
-            demonstrations,
-            input_actions,
-        )
-    ]
 
-    if not all(search_submissions):
-        raise ValueError(
-            "Not every demonstration appears to complete a search."
-        )
+def analyze_demonstration(
+    workflow_id,
+    actions,
+):
+    input_action = find_meaningful_input(
+        actions
+    )
 
-    # ------------------------------------------
-    # VARIABLE VALUES
-    # ------------------------------------------
+    start_navigation = find_starting_navigation(
+        actions
+    )
 
+    search_results = find_search_results_navigation(
+        actions,
+        input_action,
+    )
+
+    external_navigation = find_external_navigation(
+        actions,
+        search_results,
+    )
+
+    result_click = find_result_click(
+        actions,
+        search_results,
+        external_navigation,
+    )
+
+    return {
+        "workflow_id": workflow_id,
+        "actions": actions,
+        "input": input_action,
+        "start": start_navigation,
+        "search_results": search_results,
+        "result_click": result_click,
+        "external_navigation": external_navigation,
+    }
+
+
+def build_web_search_skill(
+    analyses,
+):
     example_values = [
-        action["value"]
-        for action in input_actions
+        analysis["input"]["value"]
+        for analysis in analyses
     ]
 
-    # ------------------------------------------
-    # STARTING LOCATIONS
-    # ------------------------------------------
-
-    starting_urls = []
-
-    for actions in demonstrations:
-        navigation = next(
-            (
-                action
-                for action in actions
-                if action["action_type"] == "navigate"
-            ),
-            None,
-        )
-
-        if navigation:
-            starting_urls.append(
-                navigation["url"]
-            )
+    starting_urls = [
+        analysis["start"]["url"]
+        for analysis in analyses
+        if analysis["start"]
+    ]
 
     unique_starting_urls = list(
         dict.fromkeys(starting_urls)
     )
 
-    # ------------------------------------------
-    # REPORT PATTERN
-    # ------------------------------------------
-
-    print()
-    print("👻 PATTERN FOUND")
-    print("----------------")
-    print("All demonstrations:")
-    print("- contain meaningful text input")
-    print("- produce search results")
-    print("- differ in query value")
-
-    if len(unique_starting_urls) > 1:
-        print("- use different search engines")
-
-    print()
-    print("Observed queries:")
-
-    for value in example_values:
-        print(
-            f'- "{value}"'
-        )
-
-    print()
-    print("Observed starting locations:")
-
-    for url in unique_starting_urls:
-        print(
-            f"- {url}"
-        )
-
-    # ------------------------------------------
-    # BUILD SEMANTIC SKILL
-    # ------------------------------------------
-
     steps = []
 
-    # If every demonstration started in the same
-    # environment, preserve that location.
-    #
-    # If multiple environments were demonstrated,
-    # don't hardcode one search engine.
     if len(unique_starting_urls) == 1:
         steps.append(
             SkillStep(
@@ -238,8 +233,6 @@ def learn_from_demonstrations(workflow_ids):
             )
         )
 
-    # Semantic target instead of a
-    # website-specific DOM label.
     steps.append(
         SkillStep(
             action_type="input",
@@ -266,10 +259,265 @@ def learn_from_demonstrations(workflow_ids):
                 name="query",
                 example_value=example_values[0],
                 description=(
-                    "Variable search query identified "
+                    "Search query identified "
                     "across demonstrations."
                 ),
             )
         ],
         steps=steps,
+    )
+
+
+def build_research_skill(
+    analyses,
+):
+    example_values = [
+        analysis["input"]["value"]
+        for analysis in analyses
+    ]
+
+    starting_urls = [
+        analysis["start"]["url"]
+        for analysis in analyses
+        if analysis["start"]
+    ]
+
+    unique_starting_urls = list(
+        dict.fromkeys(starting_urls)
+    )
+
+    external_domains = []
+
+    for analysis in analyses:
+        external = analysis[
+            "external_navigation"
+        ]
+
+        if external:
+            external_domains.append(
+                get_domain(
+                    external["url"]
+                )
+            )
+
+    unique_external_domains = list(
+        dict.fromkeys(external_domains)
+    )
+
+    steps = []
+
+    if len(unique_starting_urls) == 1:
+        steps.append(
+            SkillStep(
+                action_type="navigate",
+                url=unique_starting_urls[0],
+            )
+        )
+
+    steps.append(
+        SkillStep(
+            action_type="input",
+            target="search_input",
+            value="{{query}}",
+        )
+    )
+
+    steps.append(
+        SkillStep(
+            action_type="submit",
+            target="search_input",
+        )
+    )
+
+    steps.append(
+        SkillStep(
+            action_type="select",
+            target="relevant_result",
+        )
+    )
+
+    steps.append(
+        SkillStep(
+            action_type="open",
+            target="external_source",
+        )
+    )
+
+    print()
+    print(
+        "Observed external sources:"
+    )
+
+    for domain in unique_external_domains:
+        print(
+            f"- {domain}"
+        )
+
+    return Skill(
+        name="research_topic",
+        description=(
+            "Search for a topic and open "
+            "a relevant external source."
+        ),
+        variables=[
+            SkillVariable(
+                name="query",
+                example_value=example_values[0],
+                description=(
+                    "Research topic identified "
+                    "across demonstrations."
+                ),
+            )
+        ],
+        steps=steps,
+    )
+
+
+def learn_from_demonstrations(
+    workflow_ids,
+):
+    demonstrations = [
+        meaningful_actions(workflow_id)
+        for workflow_id in workflow_ids
+    ]
+
+    if not demonstrations:
+        raise ValueError(
+            "No demonstrations provided."
+        )
+
+    print()
+    print(
+        "👻 COMPARING DEMONSTRATIONS"
+    )
+    print(
+        "---------------------------"
+    )
+
+    analyses = []
+
+    for workflow_id, actions in zip(
+        workflow_ids,
+        demonstrations,
+    ):
+        signature = [
+            action_signature(action)
+            for action in actions
+        ]
+
+        print(
+            f"Workflow #{workflow_id}: "
+            f"{' → '.join(signature)}"
+        )
+
+        analyses.append(
+            analyze_demonstration(
+                workflow_id,
+                actions,
+            )
+        )
+
+    if any(
+        analysis["input"] is None
+        for analysis in analyses
+    ):
+        raise ValueError(
+            "Not every demonstration contains "
+            "meaningful input."
+        )
+
+    if any(
+        analysis["search_results"] is None
+        for analysis in analyses
+    ):
+        raise ValueError(
+            "Not every demonstration produced "
+            "search results."
+        )
+
+    example_values = [
+        analysis["input"]["value"]
+        for analysis in analyses
+    ]
+
+    print()
+    print("👻 PATTERN FOUND")
+    print("----------------")
+    print(
+        "- all demonstrations contain "
+        "meaningful text input"
+    )
+    print(
+        "- all demonstrations reach "
+        "search results"
+    )
+    print(
+        "- query values differ"
+    )
+
+    print()
+    print("Observed queries:")
+
+    for value in example_values:
+        print(
+            f'- "{value}"'
+        )
+
+    # --------------------------------------------------
+    # RESEARCH DETECTION
+    # --------------------------------------------------
+
+    all_open_external_source = all(
+        analysis["external_navigation"]
+        is not None
+        for analysis in analyses
+    )
+
+    all_choose_result = all(
+        analysis["result_click"]
+        is not None
+        for analysis in analyses
+    )
+
+    if (
+        all_open_external_source
+        and all_choose_result
+    ):
+        print()
+        print(
+            "👻 HIGHER-LEVEL PATTERN DETECTED"
+        )
+        print(
+            "--------------------------------"
+        )
+        print(
+            "- search results are inspected"
+        )
+        print(
+            "- a result is selected"
+        )
+        print(
+            "- workflow continues to "
+            "an external information source"
+        )
+        print()
+        print(
+            "Classification: research_topic"
+        )
+
+        return build_research_skill(
+            analyses
+        )
+
+    # --------------------------------------------------
+    # BASIC SEARCH
+    # --------------------------------------------------
+
+    print()
+    print(
+        "Classification: web_search"
+    )
+
+    return build_web_search_skill(
+        analyses
     )
