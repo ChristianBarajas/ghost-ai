@@ -1,20 +1,42 @@
+import os
+
+from ghost.ai.providers.openai_provider import (
+    OpenAIProvider,
+)
+
+
 class AIClient:
-    """
-    Central AI interface for GHOST.
-
-    GHOST code should talk to this class instead of
-    directly depending on a specific AI provider.
-    """
-
     def __init__(self):
-        self.enabled = False
         self.provider = None
 
-    def is_available(self):
-        return (
-            self.enabled
-            and self.provider is not None
+        self._connect_from_environment()
+
+    def _connect_from_environment(self):
+        """
+        Automatically enable OpenAI when an
+        OPENAI_API_KEY exists in the environment.
+        """
+
+        api_key = os.environ.get(
+            "OPENAI_API_KEY"
         )
+
+        if not api_key:
+            return
+
+        try:
+            self.provider = OpenAIProvider()
+
+        except Exception as error:
+            print(
+                f"⚠️ Could not initialize "
+                f"GHOST AI: {error}"
+            )
+
+            self.provider = None
+
+    def is_available(self):
+        return self.provider is not None
 
     def summarize(
         self,
@@ -22,17 +44,6 @@ class AIClient:
         title,
         content,
     ):
-        """
-        Return an AI-generated research result.
-
-        Expected future format:
-
-        {
-            "summary": "...",
-            "key_terms": [...]
-        }
-        """
-
         if not self.is_available():
             return None
 
@@ -46,33 +57,12 @@ class AIClient:
         self,
         demonstrations,
     ):
-        """
-        Eventually use an LLM to infer:
-
-        - user intent
-        - skill name
-        - variables
-        - semantic steps
-        - required vs optional behavior
-        """
-
         if not self.is_available():
             return None
 
         return self.provider.analyze_demonstrations(
             demonstrations
         )
-
-    def connect_provider(
-        self,
-        provider,
-    ):
-        self.provider = provider
-        self.enabled = True
-
-    def disconnect_provider(self):
-        self.provider = None
-        self.enabled = False
 
 
 ai_client = AIClient()
