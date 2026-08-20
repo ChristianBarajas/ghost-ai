@@ -5,25 +5,19 @@
     {
       "name": "query",
       "example_value": "best hardcore bands 2026",
-      "description": "Search query provided by the user."
+      "description": "Variable search query identified across demonstrations."
     }
   ],
   "steps": [
     {
-      "action_type": "navigate",
-      "target": null,
-      "value": null,
-      "url": "https://duckduckgo.com/"
-    },
-    {
       "action_type": "input",
-      "target": "Search with DuckDuckGo",
+      "target": "search_input",
       "value": "{{query}}",
       "url": null
     },
     {
-      "action_type": "click",
-      "target": "Search",
+      "action_type": "submit",
+      "target": "search_input",
       "value": null,
       "url": null
     }

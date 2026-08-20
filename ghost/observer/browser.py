@@ -221,8 +221,8 @@ def observe_browser(workflow_id: int):
 
         page.add_init_script(observer_script)
 
-        # DuckDuckGo is less annoying for this prototype than Google.
-        page.goto("https://duckduckgo.com/")
+        # Cross-environment learning test.
+        page.goto("https://www.bing.com/")
 
         page.evaluate(observer_script)
 

@@ -106,11 +106,23 @@ def main():
         type=int,
     )
 
+    # LEARN MULTI
+    learn_multi_parser = subparsers.add_parser(
+        "learn-multi",
+        help="Learn and save a skill from multiple demonstrations.",
+    )
+
+    learn_multi_parser.add_argument(
+        "workflow_ids",
+        nargs="+",
+        type=int,
+    )
+
     args = parser.parse_args()
 
-    # ------------------------------------------
+    # --------------------------------------------------
     # COMMAND HANDLING
-    # ------------------------------------------
+    # --------------------------------------------------
 
     if args.command == "observe":
         workflow_id = create_workflow(
@@ -256,6 +268,23 @@ def main():
                 f"value={step.value} "
                 f"url={step.url}"
             )
+
+    elif args.command == "learn-multi":
+        skill = learn_from_demonstrations(
+            args.workflow_ids
+        )
+
+        path = save_skill(
+            skill
+        )
+
+        print()
+        print(
+            f"👻 Learned multi-demo skill: {skill.name}"
+        )
+        print(
+            f"💾 Saved to: {path}"
+        )
 
     else:
         parser.print_help()

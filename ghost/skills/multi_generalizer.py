@@ -1,5 +1,3 @@
-from collections import Counter
-
 from ghost.memory.database import get_actions
 from ghost.models.skill import (
     Skill,
@@ -18,12 +16,10 @@ def meaningful_actions(workflow_id: int):
         value = action["value"]
         target = action["target"]
 
-        # Ignore empty input events.
         if action_type == "input":
             if value is None or value.strip() == "":
                 continue
 
-        # Ignore low-value click noise.
         if action_type == "click":
             if target in {
                 "img",
@@ -39,6 +35,57 @@ def meaningful_actions(workflow_id: int):
 
 def action_signature(action):
     return action["action_type"]
+
+
+def find_meaningful_input(actions):
+    return next(
+        (
+            action
+            for action in actions
+            if action["action_type"] == "input"
+            and action["value"]
+        ),
+        None,
+    )
+
+
+def has_search_submission(actions, input_action):
+    if input_action is None:
+        return False
+
+    input_id = input_action["id"]
+
+    # Search can be submitted by clicking a search control.
+    search_click = next(
+        (
+            action
+            for action in actions
+            if action["id"] > input_id
+            and action["action_type"] == "click"
+            and action["target"]
+            and "search" in action["target"].lower()
+        ),
+        None,
+    )
+
+    if search_click:
+        return True
+
+    # Or by pressing ENTER, which usually causes navigation.
+    later_navigation = next(
+        (
+            action
+            for action in actions
+            if action["id"] > input_id
+            and action["action_type"] == "navigate"
+        ),
+        None,
+    )
+
+    if later_navigation:
+        return True
+
+    return False
 
 
 def learn_from_demonstrations(workflow_ids):
@@ -70,84 +117,57 @@ def learn_from_demonstrations(workflow_ids):
             f"{' → '.join(signature)}"
         )
 
-    # --------------------------------------------------
-    # FIND MEANINGFUL INPUTS
-    # --------------------------------------------------
+    # ------------------------------------------
+    # FIND INPUTS
+    # ------------------------------------------
 
-    input_actions = []
+    input_actions = [
+        find_meaningful_input(actions)
+        for actions in demonstrations
+    ]
 
-    for actions in demonstrations:
-        input_action = next(
-            (
-                action
-                for action in actions
-                if action["action_type"] == "input"
-                and action["value"]
-            ),
-            None,
-        )
-
-        if input_action:
-            input_actions.append(
-                input_action
-            )
-
-    if len(input_actions) != len(demonstrations):
+    if any(
+        action is None
+        for action in input_actions
+    ):
         raise ValueError(
             "Not every demonstration contains meaningful input."
         )
 
-    # --------------------------------------------------
-    # FIND SEARCH SUBMISSIONS
-    # --------------------------------------------------
+    # ------------------------------------------
+    # CONFIRM COMMON SEARCH BEHAVIOR
+    # ------------------------------------------
 
-    search_clicks = []
-
-    for actions in demonstrations:
-        click = next(
-            (
-                action
-                for action in actions
-                if action["action_type"] == "click"
-                and action["target"]
-                and "search" in action["target"].lower()
-            ),
-            None,
+    search_submissions = [
+        has_search_submission(
+            actions,
+            input_action,
         )
-
-        if click:
-            search_clicks.append(
-                click
-            )
-
-    if len(search_clicks) != len(demonstrations):
-        raise ValueError(
-            "Not every demonstration looks like a search workflow."
+        for actions, input_action in zip(
+            demonstrations,
+            input_actions,
         )
-
-    # --------------------------------------------------
-    # IDENTIFY VARIABLE INPUT
-    # --------------------------------------------------
-
-    input_targets = [
-        action["target"]
-        for action in input_actions
     ]
 
-    common_target = Counter(
-        input_targets
-    ).most_common(1)[0][0]
+    if not all(search_submissions):
+        raise ValueError(
+            "Not every demonstration appears to complete a search."
+        )
+
+    # ------------------------------------------
+    # VARIABLE VALUES
+    # ------------------------------------------
 
     example_values = [
         action["value"]
         for action in input_actions
     ]
 
-    # --------------------------------------------------
-    # FIND COMMON STARTING URL
-    # --------------------------------------------------
+    # ------------------------------------------
+    # STARTING LOCATIONS
+    # ------------------------------------------
 
-    first_navigations = []
+    starting_urls = []
 
     for actions in demonstrations:
         navigation = next(
@@ -160,41 +180,80 @@ def learn_from_demonstrations(workflow_ids):
         )
 
         if navigation:
-            first_navigations.append(
+            starting_urls.append(
                 navigation["url"]
             )
 
-    common_start_url = None
+    unique_starting_urls = list(
+        dict.fromkeys(starting_urls)
+    )
 
-    if first_navigations:
-        common_start_url = Counter(
-            first_navigations
-        ).most_common(1)[0][0]
-
-    # --------------------------------------------------
-    # REPORT DISCOVERED PATTERN
-    # --------------------------------------------------
+    # ------------------------------------------
+    # REPORT PATTERN
+    # ------------------------------------------
 
     print()
     print("👻 PATTERN FOUND")
     print("----------------")
     print("All demonstrations:")
-    print("- contain user text input")
-    print("- contain a search submission")
-    print("- differ in input value")
-    print("- share a common starting location")
+    print("- contain meaningful text input")
+    print("- produce search results")
+    print("- differ in query value")
+
+    if len(unique_starting_urls) > 1:
+        print("- use different search engines")
 
     print()
-    print("Observed values:")
+    print("Observed queries:")
 
     for value in example_values:
         print(
             f'- "{value}"'
         )
 
-    # --------------------------------------------------
-    # CREATE GENERALIZED SKILL
-    # --------------------------------------------------
+    print()
+    print("Observed starting locations:")
+
+    for url in unique_starting_urls:
+        print(
+            f"- {url}"
+        )
+
+    # ------------------------------------------
+    # BUILD SEMANTIC SKILL
+    # ------------------------------------------
+
+    steps = []
+
+    # If every demonstration started in the same
+    # environment, preserve that location.
+    #
+    # If multiple environments were demonstrated,
+    # don't hardcode one search engine.
+    if len(unique_starting_urls) == 1:
+        steps.append(
+            SkillStep(
+                action_type="navigate",
+                url=unique_starting_urls[0],
+            )
+        )
+
+    # Semantic target instead of a
+    # website-specific DOM label.
+    steps.append(
+        SkillStep(
+            action_type="input",
+            target="search_input",
+            value="{{query}}",
+        )
+    )
+
+    steps.append(
+        SkillStep(
+            action_type="submit",
+            target="search_input",
+        )
+    )
 
     return Skill(
         name="web_search",
@@ -212,19 +271,5 @@ def learn_from_demonstrations(workflow_ids):
                 ),
             )
         ],
-        steps=[
-            SkillStep(
-                action_type="navigate",
-                url=common_start_url,
-            ),
-            SkillStep(
-                action_type="input",
-                target=common_target,
-                value="{{query}}",
-            ),
-            SkillStep(
-                action_type="click",
-                target="Search",
-            ),
-        ],
+        steps=steps,
     )
