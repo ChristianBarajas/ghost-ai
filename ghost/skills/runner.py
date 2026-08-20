@@ -26,6 +26,10 @@ def get_domain(url):
     return urlparse(url).netloc.lower()
 
 
+# --------------------------------------------------
+# TARGET RESOLUTION
+# --------------------------------------------------
+
 def resolve_semantic_target(page, target):
     if target == "search_input":
         print(
@@ -60,6 +64,7 @@ def resolve_semantic_target(page, target):
                         print(
                             "✅ RESOLVE → search input found"
                         )
+
                         return element
 
             except Exception:
@@ -99,6 +104,10 @@ def resolve_literal_target(page, target):
 
     return None
 
+
+# --------------------------------------------------
+# SEARCH RESULT SELECTION
+# --------------------------------------------------
 
 def resolve_relevant_result(page):
     print(
@@ -164,6 +173,10 @@ def resolve_relevant_result(page):
 
     return None
 
+
+# --------------------------------------------------
+# SEARCH SUBMISSION
+# --------------------------------------------------
 
 def submit_search(
     page,
@@ -240,6 +253,7 @@ def submit_search(
             "domcontentloaded",
             timeout=5000,
         )
+
     except Exception:
         pass
 
@@ -247,6 +261,10 @@ def submit_search(
         750
     )
 
+
+# --------------------------------------------------
+# OPEN RESULT
+# --------------------------------------------------
 
 def open_selected_result(
     page,
@@ -256,6 +274,7 @@ def open_selected_result(
         print(
             "❌ No selected result to open."
         )
+
         return page
 
     href = None
@@ -264,6 +283,7 @@ def open_selected_result(
         href = selected_result.get_attribute(
             "href"
         )
+
     except Exception:
         pass
 
@@ -279,13 +299,12 @@ def open_selected_result(
                 timeout=15000,
             )
 
-            # Give redirects time to reach
-            # the real external destination.
             try:
                 page.wait_for_load_state(
                     "domcontentloaded",
                     timeout=8000,
                 )
+
             except Exception:
                 pass
 
@@ -323,6 +342,7 @@ def open_selected_result(
             "domcontentloaded",
             timeout=8000,
         )
+
     except Exception:
         pass
 
@@ -333,6 +353,196 @@ def open_selected_result(
 
     return page
 
+
+# --------------------------------------------------
+# CONTENT EXTRACTION
+# --------------------------------------------------
+
+def clean_text(text):
+    if not text:
+        return ""
+
+    lines = []
+
+    for line in text.splitlines():
+        line = line.strip()
+
+        if not line:
+            continue
+
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
+def extract_useful_content(
+    page,
+    query=None,
+):
+    print()
+    print(
+        "👻 EXTRACTING USEFUL CONTENT"
+    )
+    print(
+        "----------------------------"
+    )
+
+    # Give dynamic pages a moment to finish
+    # rendering before reading them.
+    try:
+        page.wait_for_load_state(
+            "domcontentloaded",
+            timeout=5000,
+        )
+
+    except Exception:
+        pass
+
+    page.wait_for_timeout(
+        750
+    )
+
+    # ------------------------------
+    # TITLE
+    # ------------------------------
+
+    try:
+        title = page.title().strip()
+
+    except Exception:
+        title = ""
+
+    if not title:
+        title = "Unknown title"
+
+    # ------------------------------
+    # MAIN CONTENT
+    # ------------------------------
+
+    content = ""
+
+    candidates = [
+        page.locator("article"),
+        page.locator("main"),
+        page.locator(
+            '[role="main"]'
+        ),
+    ]
+
+    for locator in candidates:
+        try:
+            if locator.count() == 0:
+                continue
+
+            text = locator.first.inner_text(
+                timeout=5000
+            )
+
+            text = clean_text(
+                text
+            )
+
+            if len(text) >= 300:
+                content = text
+                break
+
+        except Exception:
+            continue
+
+    # If the website does not use a normal
+    # article/main structure, fall back to body.
+    if not content:
+        try:
+            content = page.locator(
+                "body"
+            ).inner_text(
+                timeout=5000
+            )
+
+            content = clean_text(
+                content
+            )
+
+        except Exception:
+            content = ""
+
+    if not content:
+        print(
+            "❌ Could not extract useful page content."
+        )
+
+        return None
+
+    # Don't dump an entire massive article into
+    # the terminal. This is our first extraction
+    # prototype, so keep a useful preview.
+    max_characters = 3000
+
+    preview = content[
+        :max_characters
+    ]
+
+    if len(content) > max_characters:
+        preview += (
+            "\n\n[Content truncated]"
+        )
+
+    result = {
+        "query": query,
+        "title": title,
+        "url": page.url,
+        "domain": get_domain(
+            page.url
+        ),
+        "content": content,
+    }
+
+    print(
+        "✅ Useful content extracted."
+    )
+
+    print()
+    print(
+        "👻 GHOST RESEARCH RESULT"
+    )
+    print(
+        "------------------------"
+    )
+
+    if query:
+        print(
+            f"Topic: {query}"
+        )
+
+    print(
+        f"Title: {title}"
+    )
+
+    print(
+        f"Source: {result['domain']}"
+    )
+
+    print(
+        f"URL: {page.url}"
+    )
+
+    print()
+    print(
+        "CONTENT PREVIEW"
+    )
+    print(
+        "---------------"
+    )
+    print(
+        preview
+    )
+
+    return result
+
+
+# --------------------------------------------------
+# VERIFICATION
+# --------------------------------------------------
 
 def verify_web_search(page):
     current_url = page.url.lower()
@@ -365,7 +575,10 @@ def verify_web_search(page):
     return False
 
 
-def verify_research_topic(page):
+def verify_research_topic(
+    page,
+    extracted_content,
+):
     search_domains = {
         "www.bing.com",
         "bing.com",
@@ -373,66 +586,59 @@ def verify_research_topic(page):
         "www.duckduckgo.com",
     }
 
-    # Retry because external pages can take
-    # a moment to finish redirects/rendering.
-    for attempt in range(3):
-        current_url = page.url
-
-        current_domain = get_domain(
-            current_url
-        )
-
-        external_page = (
-            current_domain
-            and current_domain
-            not in search_domains
-        )
-
-        try:
-            page_text = (
-                page
-                .locator("body")
-                .inner_text(
-                    timeout=5000
-                )
-            )
-
-            enough_content = (
-                len(
-                    page_text.strip()
-                ) > 200
-            )
-
-        except Exception:
-            enough_content = False
-
-        if external_page and enough_content:
-            print(
-                "✅ External research source detected."
-            )
-
-            print(
-                f"✅ Source domain: {current_domain}"
-            )
-
-            print(
-                f"✅ Current page: {page.url}"
-            )
-
-            return True
-
-        if attempt < 2:
-            print(
-                "👻 VERIFY → waiting for source content..."
-            )
-
-            page.wait_for_timeout(
-                1250
-            )
-
-    print(
-        "❌ Research source could not be verified."
+    current_domain = get_domain(
+        page.url
     )
+
+    external_page = (
+        current_domain
+        and current_domain
+        not in search_domains
+    )
+
+    content_extracted = (
+        extracted_content is not None
+        and len(
+            extracted_content.get(
+                "content",
+                "",
+            )
+        ) >= 200
+    )
+
+    if (
+        external_page
+        and content_extracted
+    ):
+        print(
+            "✅ External research source detected."
+        )
+
+        print(
+            "✅ Useful content was extracted."
+        )
+
+        print(
+            f"✅ Source domain: {current_domain}"
+        )
+
+        print(
+            f"✅ Current page: {page.url}"
+        )
+
+        return True
+
+    if not external_page:
+        print(
+            "❌ GHOST did not reach an "
+            "external research source."
+        )
+
+    if not content_extracted:
+        print(
+            "❌ GHOST did not extract "
+            "enough useful content."
+        )
 
     print(
         f"Current page: {page.url}"
@@ -444,10 +650,15 @@ def verify_research_topic(page):
 def verify_skill(
     skill,
     page,
+    extracted_content=None,
 ):
     print()
-    print("👻 VERIFYING RESULT")
-    print("-------------------")
+    print(
+        "👻 VERIFYING RESULT"
+    )
+    print(
+        "-------------------"
+    )
 
     if skill.name == "web_search":
         return verify_web_search(
@@ -456,7 +667,8 @@ def verify_skill(
 
     if skill.name == "research_topic":
         return verify_research_topic(
-            page
+            page,
+            extracted_content,
         )
 
     print(
@@ -466,6 +678,10 @@ def verify_skill(
 
     return None
 
+
+# --------------------------------------------------
+# SKILL RUNNER
+# --------------------------------------------------
 
 def run_skill(
     skill_name: str,
@@ -482,8 +698,12 @@ def run_skill(
     )
 
     print()
-    print("👻 GHOST SKILL RUNNER")
-    print("---------------------")
+    print(
+        "👻 GHOST SKILL RUNNER"
+    )
+    print(
+        "---------------------"
+    )
     print(
         f"Skill: {skill.name}"
     )
@@ -503,7 +723,8 @@ def run_skill(
 
         if provider:
             print(
-                f"👻 OPEN → {provider['start_url']}"
+                f"👻 OPEN → "
+                f"{provider['start_url']}"
             )
 
             page.goto(
@@ -513,6 +734,7 @@ def run_skill(
 
         last_input_locator = None
         selected_result = None
+        extracted_content = None
 
         for step in skill.steps:
             target = replace_variables(
@@ -530,7 +752,10 @@ def run_skill(
                 variables,
             )
 
+            # ----------------------------------
             # NAVIGATE
+            # ----------------------------------
+
             if step.action_type == "navigate":
                 print(
                     f"👻 OPEN → {url}"
@@ -541,7 +766,10 @@ def run_skill(
                     wait_until="domcontentloaded",
                 )
 
+            # ----------------------------------
             # INPUT
+            # ----------------------------------
+
             elif step.action_type == "input":
                 print(
                     f'👻 TYPE → {target}: "{value}"'
@@ -550,21 +778,25 @@ def run_skill(
                 locator = None
 
                 if target == "search_input":
-                    locator = resolve_semantic_target(
-                        page,
-                        target,
+                    locator = (
+                        resolve_semantic_target(
+                            page,
+                            target,
+                        )
                     )
 
                 if locator is None:
-                    locator = resolve_literal_target(
-                        page,
-                        target,
+                    locator = (
+                        resolve_literal_target(
+                            page,
+                            target,
+                        )
                     )
 
                 if locator is None:
                     print(
-                        f"❌ Could not resolve input: "
-                        f"{target}"
+                        f"❌ Could not resolve "
+                        f"input: {target}"
                     )
 
                     continue
@@ -575,7 +807,10 @@ def run_skill(
                     value
                 )
 
+            # ----------------------------------
             # SUBMIT
+            # ----------------------------------
+
             elif step.action_type == "submit":
                 print(
                     f"👻 SUBMIT → {target}"
@@ -587,9 +822,11 @@ def run_skill(
                     locator is None
                     and target == "search_input"
                 ):
-                    locator = resolve_semantic_target(
-                        page,
-                        target,
+                    locator = (
+                        resolve_semantic_target(
+                            page,
+                            target,
+                        )
                     )
 
                 if locator is None:
@@ -606,7 +843,10 @@ def run_skill(
                     provider,
                 )
 
+            # ----------------------------------
             # SELECT
+            # ----------------------------------
+
             elif step.action_type == "select":
                 if target == "relevant_result":
                     selected_result = (
@@ -615,7 +855,10 @@ def run_skill(
                         )
                     )
 
+            # ----------------------------------
             # OPEN
+            # ----------------------------------
+
             elif step.action_type == "open":
                 if target == "external_source":
                     page = open_selected_result(
@@ -623,7 +866,25 @@ def run_skill(
                         selected_result,
                     )
 
-            # OLD CLICK SUPPORT
+            # ----------------------------------
+            # EXTRACT
+            # ----------------------------------
+
+            elif step.action_type == "extract":
+                if target == "useful_content":
+                    extracted_content = (
+                        extract_useful_content(
+                            page,
+                            variables.get(
+                                "query"
+                            ),
+                        )
+                    )
+
+            # ----------------------------------
+            # LEGACY CLICK SUPPORT
+            # ----------------------------------
+
             elif step.action_type == "click":
                 print(
                     f"👻 ACTION → {target}"
@@ -650,8 +911,8 @@ def run_skill(
 
                 if locator.count() == 0:
                     print(
-                        f"⚠️ Could not find click "
-                        f"target: {target}"
+                        f"⚠️ Could not find "
+                        f"click target: {target}"
                     )
 
                     continue
@@ -665,23 +926,27 @@ def run_skill(
         result = verify_skill(
             skill,
             page,
+            extracted_content,
         )
 
         print()
 
         if result is True:
             print(
-                "✅ GHOST verified successful completion."
+                "✅ GHOST verified "
+                "successful completion."
             )
 
         elif result is False:
             print(
-                "❌ GHOST could not verify completion."
+                "❌ GHOST could not "
+                "verify completion."
             )
 
         else:
             print(
-                "⚠️ Workflow finished without verification."
+                "⚠️ Workflow finished "
+                "without verification."
             )
 
         print()
@@ -693,3 +958,5 @@ def run_skill(
 
         context.close()
         browser.close()
+
+        return extracted_content

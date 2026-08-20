@@ -107,6 +107,7 @@ def find_external_navigation(
         return None
 
     results_id = search_results_action["id"]
+
     search_domain = get_domain(
         search_results_action["url"]
     )
@@ -343,6 +344,17 @@ def build_research_skill(
         )
     )
 
+    # NEW:
+    # Research should bring useful information
+    # back from the source instead of only
+    # opening the webpage.
+    steps.append(
+        SkillStep(
+            action_type="extract",
+            target="useful_content",
+        )
+    )
+
     print()
     print(
         "Observed external sources:"
@@ -356,8 +368,8 @@ def build_research_skill(
     return Skill(
         name="research_topic",
         description=(
-            "Search for a topic and open "
-            "a relevant external source."
+            "Search for a topic, open a relevant "
+            "external source, and extract useful content."
         ),
         variables=[
             SkillVariable(
@@ -500,6 +512,10 @@ def learn_from_demonstrations(
             "- workflow continues to "
             "an external information source"
         )
+        print(
+            "- useful content should be extracted"
+        )
+
         print()
         print(
             "Classification: research_topic"

@@ -1,6 +1,6 @@
 {
   "name": "research_topic",
-  "description": "Search for a topic and open a relevant external source.",
+  "description": "Search for a topic, open a relevant external source, and extract useful content.",
   "variables": [
     {
       "name": "query",
@@ -36,6 +36,12 @@
     {
       "action_type": "open",
       "target": "external_source",
+      "value": null,
+      "url": null
+    },
+    {
+      "action_type": "extract",
+      "target": "useful_content",
       "value": null,
       "url": null
     }
