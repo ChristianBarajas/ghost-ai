@@ -21,11 +21,15 @@ def should_ignore_url(url: str) -> bool:
         "recaptcha",
     ]
 
-    return any(part in url.lower() for part in ignored_parts)
+    return any(
+        part in url.lower()
+        for part in ignored_parts
+    )
 
 
 def is_duplicate(action: Action) -> bool:
-    global last_action, last_action_time
+    global last_action
+    global last_action_time
 
     now = time.time()
 
@@ -50,190 +54,349 @@ def is_duplicate(action: Action) -> bool:
     return False
 
 
-def save_clean_action(workflow_id: int, action: Action):
-    if should_ignore_url(action.url):
+def save_clean_action(
+    workflow_id: int,
+    action: Action,
+):
+    if should_ignore_url(
+        action.url
+    ):
         return
 
-    if is_duplicate(action):
+    if is_duplicate(
+        action
+    ):
         return
 
-    save_action(workflow_id, action)
-
-    if action.action_type == "navigate":
-        print(f"👻 NAVIGATE → {action.url}")
-
-    elif action.action_type == "click":
-        print(f"👻 CLICK → {action.target}")
-
-    elif action.action_type == "input":
-        print(f'👻 INPUT → {action.target}: "{action.value}"')
-
-
-def handle_browser_action(workflow_id: int, data: dict):
-    action = Action(
-        action_type=data.get("action_type"),
-        target=data.get("target"),
-        value=data.get("value"),
-        url=data.get("url"),
+    save_action(
+        workflow_id,
+        action,
     )
 
-    save_clean_action(workflow_id, action)
-
-
-def observe_browser(workflow_id: int):
-    print()
-    print("👻 GHOST OBSERVER")
-    print("----------------")
-    print("A browser will open.")
-    print("Use it normally.")
-    print("When finished, RETURN TO TERMINAL and press ENTER.")
-    print("Do not close the browser manually.")
-    print()
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=False)
-
-        context = browser.new_context()
-        page = context.new_page()
-
-        def record_navigation(frame):
-            if frame != page.main_frame:
-                return
-
-            url = frame.url
-
-            if should_ignore_url(url):
-                return
-
-            save_clean_action(
-                workflow_id,
-                Action(
-                    action_type="navigate",
-                    url=url,
-                ),
-            )
-
-        page.on("framenavigated", record_navigation)
-
-        page.expose_function(
-            "ghostRecordAction",
-            lambda data: handle_browser_action(
-                workflow_id,
-                data,
-            ),
+    if action.action_type == "navigate":
+        print(
+            f"👻 NAVIGATE → {action.url}"
         )
 
-        observer_script = """
-        (() => {
-            if (window.__ghostObserverInstalled) return;
+    elif action.action_type == "click":
+        print(
+            f"👻 CLICK → {action.target}"
+        )
 
-            window.__ghostObserverInstalled = true;
+    elif action.action_type == "input":
+        print(
+            f'👻 INPUT → {action.target}: "{action.value}"'
+        )
 
-            function describeElement(element) {
-                if (!element) return "unknown";
 
-                const aria =
-                    element.getAttribute?.("aria-label");
+def handle_browser_action(
+    workflow_id: int,
+    data: dict,
+):
+    action = Action(
+        action_type=data.get(
+            "action_type"
+        ),
+        target=data.get(
+            "target"
+        ),
+        value=data.get(
+            "value"
+        ),
+        url=data.get(
+            "url"
+        ),
+    )
 
-                const placeholder =
-                    element.getAttribute?.("placeholder");
+    save_clean_action(
+        workflow_id,
+        action,
+    )
 
-                const name =
-                    element.getAttribute?.("name");
 
-                const id =
-                    element.id ? `#${element.id}` : null;
+OBSERVER_SCRIPT = """
+(() => {
+    if (window.__ghostObserverInstalled) {
+        return;
+    }
 
-                const text =
-                    element.innerText
-                        ?.trim()
-                        ?.replace(/\\s+/g, " ")
-                        ?.slice(0, 80);
+    window.__ghostObserverInstalled = true;
 
-                return (
-                    aria ||
-                    placeholder ||
-                    name ||
-                    text ||
-                    id ||
-                    element.tagName?.toLowerCase() ||
-                    "unknown"
+    function describeElement(element) {
+        if (!element) {
+            return "unknown";
+        }
+
+        const aria =
+            element.getAttribute?.("aria-label");
+
+        const placeholder =
+            element.getAttribute?.("placeholder");
+
+        const name =
+            element.getAttribute?.("name");
+
+        const id =
+            element.id
+                ? `#${element.id}`
+                : null;
+
+        const text =
+            element.innerText
+                ?.trim()
+                ?.replace(/\\s+/g, " ")
+                ?.slice(0, 120);
+
+        return (
+            aria ||
+            placeholder ||
+            name ||
+            text ||
+            id ||
+            element.tagName?.toLowerCase() ||
+            "unknown"
+        );
+    }
+
+    function recordInput(element) {
+        if (
+            !element ||
+            ![
+                "INPUT",
+                "TEXTAREA",
+                "SELECT"
+            ].includes(element.tagName)
+        ) {
+            return;
+        }
+
+        window.ghostRecordAction({
+            action_type: "input",
+            target: describeElement(element),
+            value: element.value,
+            url: window.location.href
+        });
+    }
+
+    document.addEventListener(
+        "click",
+        (event) => {
+            window.ghostRecordAction({
+                action_type: "click",
+                target: describeElement(
+                    event.target
+                ),
+                value: null,
+                url: window.location.href
+            });
+        },
+        true
+    );
+
+    document.addEventListener(
+        "change",
+        (event) => {
+            recordInput(
+                event.target
+            );
+        },
+        true
+    );
+
+    document.addEventListener(
+        "keydown",
+        (event) => {
+            if (event.key === "Enter") {
+                recordInput(
+                    event.target
                 );
             }
+        },
+        true
+    );
 
-            function recordInput(element) {
-                if (
-                    !element ||
-                    !["INPUT", "TEXTAREA", "SELECT"]
-                        .includes(element.tagName)
-                ) {
-                    return;
-                }
+    document.addEventListener(
+        "blur",
+        (event) => {
+            recordInput(
+                event.target
+            );
+        },
+        true
+    );
 
-                window.ghostRecordAction({
-                    action_type: "input",
-                    target: describeElement(element),
-                    value: element.value,
-                    url: window.location.href
-                });
-            }
+    let scrollTimer = null;
 
-            document.addEventListener(
-                "click",
-                (event) => {
+    window.addEventListener(
+        "scroll",
+        () => {
+            clearTimeout(
+                scrollTimer
+            );
+
+            scrollTimer = setTimeout(
+                () => {
                     window.ghostRecordAction({
-                        action_type: "click",
-                        target: describeElement(event.target),
-                        value: null,
+                        action_type: "scroll",
+                        target: "page",
+                        value: String(
+                            Math.round(
+                                window.scrollY
+                            )
+                        ),
                         url: window.location.href
                     });
                 },
-                true
+                300
             );
+        },
+        true
+    );
+})();
+"""
 
-            document.addEventListener(
-                "change",
-                (event) => {
-                    recordInput(event.target);
-                },
-                true
-            );
 
-            document.addEventListener(
-                "keydown",
-                (event) => {
-                    if (event.key === "Enter") {
-                        recordInput(event.target);
-                    }
-                },
-                true
-            );
+def attach_observer_to_page(
+    page,
+    workflow_id: int,
+):
+    """
+    Attach GHOST listeners to one browser page/tab.
+    """
 
-            document.addEventListener(
-                "blur",
-                (event) => {
-                    recordInput(event.target);
-                },
-                true
-            );
-        })();
-        """
+    print(
+        f"👻 WATCHING TAB → {page.url}"
+    )
 
-        page.add_init_script(observer_script)
+    def record_navigation(frame):
+        if frame != page.main_frame:
+            return
 
-        # Cross-environment learning test.
-        page.goto("https://www.bing.com/")
+        url = frame.url
 
-        page.evaluate(observer_script)
+        if should_ignore_url(
+            url
+        ):
+            return
 
-        input(
-            "\n👻 Press ENTER here when your workflow is finished..."
+        save_clean_action(
+            workflow_id,
+            Action(
+                action_type="navigate",
+                url=url,
+            ),
         )
 
-        # Only wait if the user did not manually close the page.
+    page.on(
+        "framenavigated",
+        record_navigation,
+    )
+
+    try:
+        page.expose_function(
+            "ghostRecordAction",
+            lambda data:
+                handle_browser_action(
+                    workflow_id,
+                    data,
+                ),
+        )
+    except Exception:
+        pass
+
+    try:
+        page.add_init_script(
+            OBSERVER_SCRIPT
+        )
+    except Exception:
+        pass
+
+    try:
+        if not page.is_closed():
+            page.evaluate(
+                OBSERVER_SCRIPT
+            )
+    except Exception:
+        pass
+
+
+def observe_browser(
+    workflow_id: int,
+):
+    print()
+    print("👻 GHOST OBSERVER")
+    print("----------------")
+    print(
+        "A browser will open."
+    )
+    print(
+        "Use it normally."
+    )
+    print(
+        "GHOST will now watch new tabs too."
+    )
+    print(
+        "When finished, RETURN TO TERMINAL "
+        "and press ENTER."
+    )
+    print(
+        "Do not close the browser manually."
+    )
+    print()
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=False
+        )
+
+        context = browser.new_context()
+
+        # ------------------------------------------
+        # WATCH EVERY NEW TAB / PAGE
+        # ------------------------------------------
+
+        def handle_new_page(page):
+            attach_observer_to_page(
+                page,
+                workflow_id,
+            )
+
+        context.on(
+            "page",
+            handle_new_page,
+        )
+
+        # Create the first page.
+        page = context.new_page()
+
+        attach_observer_to_page(
+            page,
+            workflow_id,
+        )
+
+        # Bing is currently useful for
+        # research workflow testing.
+        page.goto(
+            "https://www.bing.com/"
+        )
+
+        input(
+            "\n👻 Press ENTER here when your "
+            "workflow is finished..."
+        )
+
         try:
-            if not page.is_closed():
-                page.wait_for_timeout(250)
+            open_pages = context.pages
+
+            for open_page in open_pages:
+                try:
+                    if not open_page.is_closed():
+                        open_page.wait_for_timeout(
+                            250
+                        )
+                except Exception:
+                    pass
+
         except Exception:
             pass
 
