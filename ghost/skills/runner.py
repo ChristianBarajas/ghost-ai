@@ -4,7 +4,16 @@ from playwright.sync_api import sync_playwright
 
 from ghost.skills.storage import load_skill
 from ghost.skills.providers import get_provider
+from ghost.skills.summarizer import (
+    summarize_content,
+    extract_key_terms,
+    is_useful_source,
+)
 
+
+# --------------------------------------------------
+# BASIC HELPERS
+# --------------------------------------------------
 
 def replace_variables(value, variables):
     if value is None:
@@ -31,48 +40,52 @@ def get_domain(url):
 # --------------------------------------------------
 
 def resolve_semantic_target(page, target):
-    if target == "search_input":
-        print(
-            "👻 RESOLVE → looking for search input"
-        )
+    if target != "search_input":
+        return None
 
-        candidates = [
-            page.locator('input[type="search"]'),
-            page.get_by_role("searchbox"),
-            page.locator(
-                'input[placeholder*="search" i]'
-            ),
-            page.locator(
-                'textarea[placeholder*="search" i]'
-            ),
-            page.locator(
-                'input[aria-label*="search" i]'
-            ),
-            page.locator(
-                'textarea[aria-label*="search" i]'
-            ),
-            page.locator('input[name="q"]'),
-            page.locator('textarea[name="q"]'),
-        ]
+    print(
+        "👻 RESOLVE → looking for search input"
+    )
 
-        for locator in candidates:
-            try:
-                if locator.count() > 0:
-                    element = locator.first
+    candidates = [
+        page.locator('input[type="search"]'),
+        page.get_by_role("searchbox"),
+        page.locator(
+            'input[placeholder*="search" i]'
+        ),
+        page.locator(
+            'textarea[placeholder*="search" i]'
+        ),
+        page.locator(
+            'input[aria-label*="search" i]'
+        ),
+        page.locator(
+            'textarea[aria-label*="search" i]'
+        ),
+        page.locator('input[name="q"]'),
+        page.locator('textarea[name="q"]'),
+    ]
 
-                    if element.is_visible():
-                        print(
-                            "✅ RESOLVE → search input found"
-                        )
-
-                        return element
-
-            except Exception:
+    for locator in candidates:
+        try:
+            if locator.count() == 0:
                 continue
 
-        print(
-            "❌ RESOLVE → search input not found"
-        )
+            element = locator.first
+
+            if element.is_visible():
+                print(
+                    "✅ RESOLVE → search input found"
+                )
+
+                return element
+
+        except Exception:
+            continue
+
+    print(
+        "❌ RESOLVE → search input not found"
+    )
 
     return None
 
@@ -101,75 +114,6 @@ def resolve_literal_target(page, target):
 
         except Exception:
             continue
-
-    return None
-
-
-# --------------------------------------------------
-# SEARCH RESULT SELECTION
-# --------------------------------------------------
-
-def resolve_relevant_result(page):
-    print(
-        "👻 RESOLVE → looking for relevant result"
-    )
-
-    candidates = [
-        page.locator("li.b_algo h2 a"),
-        page.locator("main h2 a"),
-        page.locator("main h3 a"),
-        page.locator('a[href^="http"]'),
-    ]
-
-    for locator_group in candidates:
-        try:
-            count = locator_group.count()
-
-            for index in range(
-                min(count, 20)
-            ):
-                locator = locator_group.nth(
-                    index
-                )
-
-                try:
-                    if not locator.is_visible():
-                        continue
-
-                    href = locator.get_attribute(
-                        "href"
-                    )
-
-                    text = (
-                        locator.inner_text()
-                        .strip()
-                    )
-
-                    if not href:
-                        continue
-
-                    if len(text) < 5:
-                        continue
-
-                    print(
-                        "✅ RESOLVE → relevant result found"
-                    )
-
-                    print(
-                        f"👻 RESULT → {text[:100]}"
-                    )
-
-                    return locator
-
-                except Exception:
-                    continue
-
-        except Exception:
-            continue
-
-    print(
-        "❌ RESOLVE → relevant result not found"
-    )
 
     return None
 
@@ -205,6 +149,7 @@ def submit_search(
                     }
 
                     element.form.requestSubmit();
+
                     return true;
                 }
                 """
@@ -263,102 +208,161 @@ def submit_search(
 
 
 # --------------------------------------------------
+# SEARCH RESULTS
+# --------------------------------------------------
+
+def get_result_candidates(page):
+    """
+    Return likely search-result links.
+
+    Bing result links are preferred first,
+    followed by generic result structures.
+    """
+
+    candidate_groups = [
+        page.locator(
+            "li.b_algo h2 a"
+        ),
+        page.locator(
+            "main h2 a"
+        ),
+        page.locator(
+            "main h3 a"
+        ),
+    ]
+
+    results = []
+    seen_text = set()
+
+    for group in candidate_groups:
+        try:
+            count = group.count()
+
+        except Exception:
+            continue
+
+        for index in range(
+            min(count, 20)
+        ):
+            locator = group.nth(
+                index
+            )
+
+            try:
+                if not locator.is_visible():
+                    continue
+
+                text = (
+                    locator.inner_text()
+                    .strip()
+                )
+
+                href = locator.get_attribute(
+                    "href"
+                )
+
+                if not text:
+                    continue
+
+                if len(text) < 5:
+                    continue
+
+                if not href:
+                    continue
+
+                key = text.lower()
+
+                if key in seen_text:
+                    continue
+
+                seen_text.add(
+                    key
+                )
+
+                results.append(
+                    {
+                        "text": text,
+                        "href": href,
+                    }
+                )
+
+            except Exception:
+                continue
+
+    return results
+
+
+def print_result_choice(
+    index,
+    result,
+):
+    print()
+    print(
+        f"👻 TRYING RESULT #{index + 1}"
+    )
+
+    print(
+        f"👻 RESULT → "
+        f"{result['text'][:120]}"
+    )
+
+
+# --------------------------------------------------
 # OPEN RESULT
 # --------------------------------------------------
 
-def open_selected_result(
+def open_result(
     page,
-    selected_result,
+    result,
 ):
-    if selected_result is None:
-        print(
-            "❌ No selected result to open."
-        )
+    href = result.get(
+        "href"
+    )
 
-        return page
-
-    href = None
-
-    try:
-        href = selected_result.get_attribute(
-            "href"
-        )
-
-    except Exception:
-        pass
+    if not href:
+        return False
 
     print(
         "👻 OPEN → selected result"
     )
 
-    if href:
-        try:
-            page.goto(
-                href,
-                wait_until="domcontentloaded",
-                timeout=15000,
-            )
-
-            try:
-                page.wait_for_load_state(
-                    "domcontentloaded",
-                    timeout=8000,
-                )
-
-            except Exception:
-                pass
-
-            page.wait_for_timeout(
-                1500
-            )
-
-            print(
-                f"👻 NAVIGATED → {page.url}"
-            )
-
-            return page
-
-        except Exception:
-            pass
-
-    old_url = page.url
-
     try:
-        selected_result.click()
-
-        page.wait_for_timeout(
-            1500
+        page.goto(
+            href,
+            wait_until="domcontentloaded",
+            timeout=15000,
         )
 
-    except Exception as error:
-        print(
-            f"❌ Could not open result: {error}"
-        )
-
-        return page
+    except Exception:
+        # A timeout does not always mean the
+        # destination failed to load.
+        pass
 
     try:
         page.wait_for_load_state(
             "domcontentloaded",
-            timeout=8000,
+            timeout=7000,
         )
 
     except Exception:
         pass
 
-    if page.url != old_url:
-        print(
-            f"👻 NAVIGATED → {page.url}"
-        )
+    page.wait_for_timeout(
+        1250
+    )
 
-    return page
+    print(
+        f"👻 NAVIGATED → {page.url}"
+    )
+
+    return True
 
 
 # --------------------------------------------------
 # CONTENT EXTRACTION
 # --------------------------------------------------
 
-def clean_text(text):
+def clean_page_text(text):
     if not text:
         return ""
 
@@ -370,25 +374,28 @@ def clean_text(text):
         if not line:
             continue
 
-        lines.append(line)
+        lines.append(
+            line
+        )
 
-    return "\n".join(lines)
+    return "\n".join(
+        lines
+    )
 
 
-def extract_useful_content(
+def extract_page_content(
     page,
-    query=None,
+    quiet=False,
 ):
-    print()
-    print(
-        "👻 EXTRACTING USEFUL CONTENT"
-    )
-    print(
-        "----------------------------"
-    )
+    if not quiet:
+        print()
+        print(
+            "👻 EXTRACTING USEFUL CONTENT"
+        )
+        print(
+            "----------------------------"
+        )
 
-    # Give dynamic pages a moment to finish
-    # rendering before reading them.
     try:
         page.wait_for_load_state(
             "domcontentloaded",
@@ -399,15 +406,14 @@ def extract_useful_content(
         pass
 
     page.wait_for_timeout(
-        750
+        500
     )
 
-    # ------------------------------
-    # TITLE
-    # ------------------------------
-
     try:
-        title = page.title().strip()
+        title = (
+            page.title()
+            .strip()
+        )
 
     except Exception:
         title = ""
@@ -415,15 +421,15 @@ def extract_useful_content(
     if not title:
         title = "Unknown title"
 
-    # ------------------------------
-    # MAIN CONTENT
-    # ------------------------------
-
     content = ""
 
     candidates = [
-        page.locator("article"),
-        page.locator("main"),
+        page.locator(
+            "article"
+        ),
+        page.locator(
+            "main"
+        ),
         page.locator(
             '[role="main"]'
         ),
@@ -438,57 +444,46 @@ def extract_useful_content(
                 timeout=5000
             )
 
-            text = clean_text(
+            text = clean_page_text(
                 text
             )
 
-            if len(text) >= 300:
+            if len(text) >= 250:
                 content = text
                 break
 
         except Exception:
             continue
 
-    # If the website does not use a normal
-    # article/main structure, fall back to body.
     if not content:
         try:
-            content = page.locator(
+            text = page.locator(
                 "body"
             ).inner_text(
                 timeout=5000
             )
 
-            content = clean_text(
-                content
+            content = clean_page_text(
+                text
             )
 
         except Exception:
             content = ""
 
     if not content:
-        print(
-            "❌ Could not extract useful page content."
-        )
+        if not quiet:
+            print(
+                "❌ Could not extract page content."
+            )
 
         return None
 
-    # Don't dump an entire massive article into
-    # the terminal. This is our first extraction
-    # prototype, so keep a useful preview.
-    max_characters = 3000
-
-    preview = content[
-        :max_characters
-    ]
-
-    if len(content) > max_characters:
-        preview += (
-            "\n\n[Content truncated]"
+    if not quiet:
+        print(
+            "✅ Page content extracted."
         )
 
-    result = {
-        "query": query,
+    return {
         "title": title,
         "url": page.url,
         "domain": get_domain(
@@ -497,8 +492,231 @@ def extract_useful_content(
         "content": content,
     }
 
+
+# --------------------------------------------------
+# SOURCE QUALITY
+# --------------------------------------------------
+
+def check_source_quality(
+    extracted_content,
+    query,
+):
+    if extracted_content is None:
+        return (
+            False,
+            "no content could be extracted",
+        )
+
+    title = extracted_content.get(
+        "title",
+        "",
+    )
+
+    content = extracted_content.get(
+        "content",
+        "",
+    )
+
+    useful, reason = is_useful_source(
+        title,
+        content,
+        query=query,
+    )
+
+    return (
+        useful,
+        reason,
+    )
+
+
+# --------------------------------------------------
+# RESEARCH RETRY LOOP
+# --------------------------------------------------
+
+def find_useful_research_source(
+    page,
+    query,
+    max_attempts=5,
+):
+    """
+    Try search results one by one until
+    GHOST finds a source that passes
+    quality checks.
+    """
+
+    results_url = page.url
+
+    results = get_result_candidates(
+        page
+    )
+
+    if not results:
+        print(
+            "❌ No search results found."
+        )
+
+        return (
+            page,
+            None,
+        )
+
+    attempts = min(
+        len(results),
+        max_attempts,
+    )
+
+    print()
     print(
-        "✅ Useful content extracted."
+        f"👻 FOUND {len(results)} "
+        f"POSSIBLE RESULTS"
+    )
+
+    for index in range(
+        attempts
+    ):
+        result = results[
+            index
+        ]
+
+        # Return to search results before
+        # each new attempt.
+        if page.url != results_url:
+            try:
+                page.goto(
+                    results_url,
+                    wait_until="domcontentloaded",
+                    timeout=10000,
+                )
+
+            except Exception:
+                pass
+
+            page.wait_for_timeout(
+                500
+            )
+
+        print_result_choice(
+            index,
+            result,
+        )
+
+        opened = open_result(
+            page,
+            result,
+        )
+
+        if not opened:
+            print(
+                "⚠️ Result could not be opened."
+            )
+
+            continue
+
+        extracted = extract_page_content(
+            page,
+            quiet=True,
+        )
+
+        useful, reason = (
+            check_source_quality(
+                extracted,
+                query,
+            )
+        )
+
+        if useful:
+            print(
+                "✅ SOURCE ACCEPTED"
+            )
+
+            print(
+                f"👻 QUALITY → {reason}"
+            )
+
+            print(
+                f"👻 SOURCE → {page.url}"
+            )
+
+            return (
+                page,
+                extracted,
+            )
+
+        print(
+            "⚠️ SOURCE REJECTED"
+        )
+
+        print(
+            f"👻 REASON → {reason}"
+        )
+
+        print(
+            "👻 Trying another result..."
+        )
+
+    print()
+    print(
+        "❌ GHOST could not find a "
+        "useful source."
+    )
+
+    return (
+        page,
+        None,
+    )
+
+
+# --------------------------------------------------
+# SUMMARIZATION
+# --------------------------------------------------
+
+def build_research_result(
+    extracted_content,
+    query,
+):
+    if extracted_content is None:
+        return None
+
+    print()
+    print(
+        "👻 SUMMARIZING CONTENT"
+    )
+    print(
+        "----------------------"
+    )
+
+    content = extracted_content.get(
+        "content",
+        "",
+    )
+
+    summary = summarize_content(
+        content,
+        query=query,
+        max_sentences=5,
+    )
+
+    key_terms = extract_key_terms(
+        content,
+        limit=6,
+    )
+
+    if not summary:
+        print(
+            "❌ Could not generate summary."
+        )
+
+        return None
+
+    result = {
+        **extracted_content,
+        "query": query,
+        "summary": summary,
+        "key_terms": key_terms,
+    }
+
+    print(
+        "✅ Summary generated."
     )
 
     print()
@@ -509,13 +727,12 @@ def extract_useful_content(
         "------------------------"
     )
 
-    if query:
-        print(
-            f"Topic: {query}"
-        )
+    print(
+        f"Topic: {query}"
+    )
 
     print(
-        f"Title: {title}"
+        f"Title: {result['title']}"
     )
 
     print(
@@ -523,19 +740,35 @@ def extract_useful_content(
     )
 
     print(
-        f"URL: {page.url}"
+        f"URL: {result['url']}"
     )
 
     print()
     print(
-        "CONTENT PREVIEW"
+        "SUMMARY"
     )
     print(
-        "---------------"
+        "-------"
+    )
+
+    print(
+        result["summary"]
+    )
+
+    print()
+    print(
+        "KEY TERMS"
     )
     print(
-        preview
+        "---------"
     )
+
+    for term in result[
+        "key_terms"
+    ]:
+        print(
+            f"- {term}"
+        )
 
     return result
 
@@ -545,7 +778,9 @@ def extract_useful_content(
 # --------------------------------------------------
 
 def verify_web_search(page):
-    current_url = page.url.lower()
+    current_url = (
+        page.url.lower()
+    )
 
     looks_like_results_url = (
         "/search" in current_url
@@ -565,11 +800,8 @@ def verify_web_search(page):
         return True
 
     print(
-        "❌ Search results could not be verified."
-    )
-
-    print(
-        f"Current page: {page.url}"
+        "❌ Search results could not "
+        "be verified."
     )
 
     return False
@@ -577,7 +809,7 @@ def verify_web_search(page):
 
 def verify_research_topic(
     page,
-    extracted_content,
+    research_result,
 ):
     search_domains = {
         "www.bing.com",
@@ -596,30 +828,31 @@ def verify_research_topic(
         not in search_domains
     )
 
-    content_extracted = (
-        extracted_content is not None
+    has_summary = (
+        research_result is not None
         and len(
-            extracted_content.get(
-                "content",
+            research_result.get(
+                "summary",
                 "",
             )
-        ) >= 200
+        ) > 100
     )
 
     if (
         external_page
-        and content_extracted
+        and has_summary
     ):
         print(
             "✅ External research source detected."
         )
 
         print(
-            "✅ Useful content was extracted."
+            "✅ Research summary generated."
         )
 
         print(
-            f"✅ Source domain: {current_domain}"
+            f"✅ Source domain: "
+            f"{current_domain}"
         )
 
         print(
@@ -630,19 +863,15 @@ def verify_research_topic(
 
     if not external_page:
         print(
-            "❌ GHOST did not reach an "
-            "external research source."
+            "❌ GHOST did not reach "
+            "a valid external source."
         )
 
-    if not content_extracted:
+    if not has_summary:
         print(
-            "❌ GHOST did not extract "
-            "enough useful content."
+            "❌ GHOST did not produce "
+            "a usable summary."
         )
-
-    print(
-        f"Current page: {page.url}"
-    )
 
     return False
 
@@ -650,7 +879,7 @@ def verify_research_topic(
 def verify_skill(
     skill,
     page,
-    extracted_content=None,
+    research_result=None,
 ):
     print()
     print(
@@ -668,7 +897,7 @@ def verify_skill(
     if skill.name == "research_topic":
         return verify_research_topic(
             page,
-            extracted_content,
+            research_result,
         )
 
     print(
@@ -704,6 +933,7 @@ def run_skill(
     print(
         "---------------------"
     )
+
     print(
         f"Skill: {skill.name}"
     )
@@ -733,8 +963,7 @@ def run_skill(
             )
 
         last_input_locator = None
-        selected_result = None
-        extracted_content = None
+        research_result = None
 
         for step in skill.steps:
             target = replace_variables(
@@ -848,11 +1077,13 @@ def run_skill(
             # ----------------------------------
 
             elif step.action_type == "select":
-                if target == "relevant_result":
-                    selected_result = (
-                        resolve_relevant_result(
-                            page
-                        )
+                if (
+                    target == "relevant_result"
+                    and skill.name
+                    != "research_topic"
+                ):
+                    print(
+                        "👻 SELECT → relevant result"
                     )
 
             # ----------------------------------
@@ -860,29 +1091,50 @@ def run_skill(
             # ----------------------------------
 
             elif step.action_type == "open":
-                if target == "external_source":
-                    page = open_selected_result(
-                        page,
-                        selected_result,
+                if (
+                    target == "external_source"
+                    and skill.name
+                    == "research_topic"
+                ):
+                    page, extracted = (
+                        find_useful_research_source(
+                            page,
+                            variables.get(
+                                "query"
+                            ),
+                            max_attempts=5,
+                        )
                     )
+
+                    if extracted is not None:
+                        research_result = (
+                            build_research_result(
+                                extracted,
+                                variables.get(
+                                    "query"
+                                ),
+                            )
+                        )
 
             # ----------------------------------
             # EXTRACT
             # ----------------------------------
 
             elif step.action_type == "extract":
-                if target == "useful_content":
-                    extracted_content = (
-                        extract_useful_content(
-                            page,
-                            variables.get(
-                                "query"
-                            ),
-                        )
+                # research_topic already performs
+                # extraction during its source-quality
+                # retry loop.
+                if (
+                    target == "useful_content"
+                    and research_result is None
+                ):
+                    print(
+                        "⚠️ No accepted research "
+                        "source available to extract."
                     )
 
             # ----------------------------------
-            # LEGACY CLICK SUPPORT
+            # LEGACY CLICK
             # ----------------------------------
 
             elif step.action_type == "click":
@@ -926,7 +1178,7 @@ def run_skill(
         result = verify_skill(
             skill,
             page,
-            extracted_content,
+            research_result,
         )
 
         print()
@@ -959,4 +1211,4 @@ def run_skill(
         context.close()
         browser.close()
 
-        return extracted_content
+        return research_result
