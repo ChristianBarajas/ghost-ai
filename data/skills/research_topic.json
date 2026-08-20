@@ -1,0 +1,43 @@
+{
+  "name": "research_topic",
+  "description": "Search for a topic and open a relevant external source.",
+  "variables": [
+    {
+      "name": "query",
+      "example_value": "what is deep learning",
+      "description": "Research topic identified across demonstrations."
+    }
+  ],
+  "steps": [
+    {
+      "action_type": "navigate",
+      "target": null,
+      "value": null,
+      "url": "https://www.bing.com/"
+    },
+    {
+      "action_type": "input",
+      "target": "search_input",
+      "value": "{{query}}",
+      "url": null
+    },
+    {
+      "action_type": "submit",
+      "target": "search_input",
+      "value": null,
+      "url": null
+    },
+    {
+      "action_type": "select",
+      "target": "relevant_result",
+      "value": null,
+      "url": null
+    },
+    {
+      "action_type": "open",
+      "target": "external_source",
+      "value": null,
+      "url": null
+    }
+  ]
+}

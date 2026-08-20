@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from playwright.sync_api import sync_playwright
 
 from ghost.skills.storage import load_skill
@@ -15,6 +17,13 @@ def replace_variables(value, variables):
         )
 
     return value
+
+
+def get_domain(url):
+    if not url:
+        return None
+
+    return urlparse(url).netloc.lower()
 
 
 def resolve_semantic_target(page, target):
@@ -91,58 +100,66 @@ def resolve_literal_target(page, target):
     return None
 
 
-def verify_skill(
-    skill,
-    page,
-    variables,
-):
-    print()
-    print("👻 VERIFYING RESULT")
-    print("-------------------")
+def resolve_relevant_result(page):
+    print(
+        "👻 RESOLVE → looking for relevant result"
+    )
 
-    if skill.name == "web_search":
-        query = variables.get(
-            "query"
-        )
+    candidates = [
+        page.locator("li.b_algo h2 a"),
+        page.locator("main h2 a"),
+        page.locator("main h3 a"),
+        page.locator('a[href^="http"]'),
+    ]
 
-        if not query:
-            print(
-                "❌ No search query was provided."
-            )
-            return False
+    for locator_group in candidates:
+        try:
+            count = locator_group.count()
 
-        current_url = page.url.lower()
+            for index in range(
+                min(count, 20)
+            ):
+                locator = locator_group.nth(
+                    index
+                )
 
-        looks_like_results_url = (
-            "/search" in current_url
-            or "?q=" in current_url
-            or "&q=" in current_url
-        )
+                try:
+                    if not locator.is_visible():
+                        continue
 
-        if looks_like_results_url:
-            print(
-                "✅ Search results detected."
-            )
+                    href = locator.get_attribute(
+                        "href"
+                    )
 
-            print(
-                f"✅ Current page: {page.url}"
-            )
+                    text = (
+                        locator.inner_text()
+                        .strip()
+                    )
 
-            return True
+                    if not href:
+                        continue
 
-        print(
-            "❌ Search results could not be verified."
-        )
+                    if len(text) < 5:
+                        continue
 
-        print(
-            f"Current page: {page.url}"
-        )
+                    print(
+                        "✅ RESOLVE → relevant result found"
+                    )
 
-        return False
+                    print(
+                        f"👻 RESULT → {text[:100]}"
+                    )
+
+                    return locator
+
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
 
     print(
-        f"⚠️ No verification rule exists "
-        f"for '{skill.name}'."
+        "❌ RESOLVE → relevant result not found"
     )
 
     return None
@@ -158,7 +175,7 @@ def submit_search(
     submit_strategy = (
         provider.get("submit_strategy")
         if provider
-        else "enter"
+        else "form"
     )
 
     if submit_strategy == "form":
@@ -206,7 +223,7 @@ def submit_search(
         page.wait_for_url(
             lambda current_url:
                 current_url != old_url,
-            timeout=5000,
+            timeout=7000,
         )
 
         print(
@@ -218,9 +235,236 @@ def submit_search(
             "⚠️ No URL change detected."
         )
 
+    try:
+        page.wait_for_load_state(
+            "domcontentloaded",
+            timeout=5000,
+        )
+    except Exception:
+        pass
+
     page.wait_for_timeout(
         750
     )
+
+
+def open_selected_result(
+    page,
+    selected_result,
+):
+    if selected_result is None:
+        print(
+            "❌ No selected result to open."
+        )
+        return page
+
+    href = None
+
+    try:
+        href = selected_result.get_attribute(
+            "href"
+        )
+    except Exception:
+        pass
+
+    print(
+        "👻 OPEN → selected result"
+    )
+
+    if href:
+        try:
+            page.goto(
+                href,
+                wait_until="domcontentloaded",
+                timeout=15000,
+            )
+
+            # Give redirects time to reach
+            # the real external destination.
+            try:
+                page.wait_for_load_state(
+                    "domcontentloaded",
+                    timeout=8000,
+                )
+            except Exception:
+                pass
+
+            page.wait_for_timeout(
+                1500
+            )
+
+            print(
+                f"👻 NAVIGATED → {page.url}"
+            )
+
+            return page
+
+        except Exception:
+            pass
+
+    old_url = page.url
+
+    try:
+        selected_result.click()
+
+        page.wait_for_timeout(
+            1500
+        )
+
+    except Exception as error:
+        print(
+            f"❌ Could not open result: {error}"
+        )
+
+        return page
+
+    try:
+        page.wait_for_load_state(
+            "domcontentloaded",
+            timeout=8000,
+        )
+    except Exception:
+        pass
+
+    if page.url != old_url:
+        print(
+            f"👻 NAVIGATED → {page.url}"
+        )
+
+    return page
+
+
+def verify_web_search(page):
+    current_url = page.url.lower()
+
+    looks_like_results_url = (
+        "/search" in current_url
+        or "?q=" in current_url
+        or "&q=" in current_url
+    )
+
+    if looks_like_results_url:
+        print(
+            "✅ Search results detected."
+        )
+
+        print(
+            f"✅ Current page: {page.url}"
+        )
+
+        return True
+
+    print(
+        "❌ Search results could not be verified."
+    )
+
+    print(
+        f"Current page: {page.url}"
+    )
+
+    return False
+
+
+def verify_research_topic(page):
+    search_domains = {
+        "www.bing.com",
+        "bing.com",
+        "duckduckgo.com",
+        "www.duckduckgo.com",
+    }
+
+    # Retry because external pages can take
+    # a moment to finish redirects/rendering.
+    for attempt in range(3):
+        current_url = page.url
+
+        current_domain = get_domain(
+            current_url
+        )
+
+        external_page = (
+            current_domain
+            and current_domain
+            not in search_domains
+        )
+
+        try:
+            page_text = (
+                page
+                .locator("body")
+                .inner_text(
+                    timeout=5000
+                )
+            )
+
+            enough_content = (
+                len(
+                    page_text.strip()
+                ) > 200
+            )
+
+        except Exception:
+            enough_content = False
+
+        if external_page and enough_content:
+            print(
+                "✅ External research source detected."
+            )
+
+            print(
+                f"✅ Source domain: {current_domain}"
+            )
+
+            print(
+                f"✅ Current page: {page.url}"
+            )
+
+            return True
+
+        if attempt < 2:
+            print(
+                "👻 VERIFY → waiting for source content..."
+            )
+
+            page.wait_for_timeout(
+                1250
+            )
+
+    print(
+        "❌ Research source could not be verified."
+    )
+
+    print(
+        f"Current page: {page.url}"
+    )
+
+    return False
+
+
+def verify_skill(
+    skill,
+    page,
+):
+    print()
+    print("👻 VERIFYING RESULT")
+    print("-------------------")
+
+    if skill.name == "web_search":
+        return verify_web_search(
+            page
+        )
+
+    if skill.name == "research_topic":
+        return verify_research_topic(
+            page
+        )
+
+    print(
+        f"⚠️ No verification rule exists "
+        f"for '{skill.name}'."
+    )
+
+    return None
 
 
 def run_skill(
@@ -254,11 +498,8 @@ def run_skill(
             headless=False
         )
 
-        page = browser.new_page()
-
-        # ------------------------------------------
-        # PROVIDER / ENVIRONMENT
-        # ------------------------------------------
+        context = browser.new_context()
+        page = context.new_page()
 
         if provider:
             print(
@@ -271,10 +512,7 @@ def run_skill(
             )
 
         last_input_locator = None
-
-        # ------------------------------------------
-        # RUN LEARNED SKILL
-        # ------------------------------------------
+        selected_result = None
 
         for step in skill.steps:
             target = replace_variables(
@@ -368,6 +606,23 @@ def run_skill(
                     provider,
                 )
 
+            # SELECT
+            elif step.action_type == "select":
+                if target == "relevant_result":
+                    selected_result = (
+                        resolve_relevant_result(
+                            page
+                        )
+                    )
+
+            # OPEN
+            elif step.action_type == "open":
+                if target == "external_source":
+                    page = open_selected_result(
+                        page,
+                        selected_result,
+                    )
+
             # OLD CLICK SUPPORT
             elif step.action_type == "click":
                 print(
@@ -407,14 +662,9 @@ def run_skill(
                     750
                 )
 
-        # ------------------------------------------
-        # VERIFY
-        # ------------------------------------------
-
         result = verify_skill(
             skill,
             page,
-            variables,
         )
 
         print()
@@ -441,4 +691,5 @@ def run_skill(
 
         input()
 
+        context.close()
         browser.close()
