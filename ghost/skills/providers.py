@@ -8,12 +8,27 @@ PROVIDERS = {
             "start_url": "https://www.bing.com/",
             "submit_strategy": "form",
         },
-    }
+    },
+
+    "research_topic": {
+        "duckduckgo": {
+            "start_url": "https://duckduckgo.com/",
+            "submit_strategy": "enter",
+        },
+        "bing": {
+            "start_url": "https://www.bing.com/",
+            "submit_strategy": "form",
+        },
+    },
 }
 
 
 DEFAULT_PROVIDERS = {
     "web_search": "duckduckgo",
+
+    # Research currently works best with our
+    # Bing result-selection logic.
+    "research_topic": "bing",
 }
 
 
@@ -21,13 +36,6 @@ def get_provider(
     skill_name: str,
     provider_name=None,
 ):
-    """
-    Return provider configuration for a skill.
-
-    If no provider is explicitly requested,
-    use the default provider for that skill.
-    """
-
     skill_providers = PROVIDERS.get(
         skill_name,
         {}
@@ -53,7 +61,7 @@ def get_provider(
         raise ValueError(
             f"Unknown provider '{provider_name}' "
             f"for skill '{skill_name}'. "
-            f"Available providers: {available}"
+            f"Available: {available}"
         )
 
     return {

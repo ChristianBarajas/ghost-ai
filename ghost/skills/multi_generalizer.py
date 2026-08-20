@@ -1,5 +1,7 @@
+import re
 from urllib.parse import urlparse
 
+from ghost.ai.client import ai_client
 from ghost.memory.database import get_actions
 from ghost.models.skill import (
     Skill,
@@ -7,6 +9,10 @@ from ghost.models.skill import (
     SkillVariable,
 )
 
+
+# --------------------------------------------------
+# DEMONSTRATION CLEANING
+# --------------------------------------------------
 
 def meaningful_actions(workflow_id: int):
     actions = get_actions(workflow_id)
@@ -23,7 +29,7 @@ def meaningful_actions(workflow_id: int):
             if value is None or value.strip() == "":
                 continue
 
-        # Ignore low-value click noise.
+        # Ignore obvious click noise.
         if action_type == "click":
             if target in {
                 "img",
@@ -40,6 +46,401 @@ def meaningful_actions(workflow_id: int):
 def action_signature(action):
     return action["action_type"]
 
+
+def clean_action_for_ai(action):
+    """
+    Convert sqlite3.Row into a plain dictionary
+    containing only information useful to the LLM.
+    """
+
+    return {
+        "action_type": action["action_type"],
+        "target": action["target"],
+        "value": action["value"],
+        "url": action["url"],
+    }
+
+
+def build_ai_demonstrations(
+    workflow_ids,
+    demonstrations,
+):
+    result = []
+
+    for workflow_id, actions in zip(
+        workflow_ids,
+        demonstrations,
+    ):
+        result.append(
+            {
+                "workflow_id": workflow_id,
+                "actions": [
+                    clean_action_for_ai(action)
+                    for action in actions
+                ],
+            }
+        )
+
+    return result
+
+
+# --------------------------------------------------
+# VARIABLE NORMALIZATION
+# --------------------------------------------------
+
+def normalize_variable_reference(
+    value,
+    variable_names,
+):
+    """
+    Convert variable formats produced by an LLM
+    into GHOST's {{variable}} format.
+
+    Examples:
+
+    $topic_query
+        ->
+    {{topic_query}}
+
+    topic_query
+        ->
+    {{topic_query}}
+
+    {{topic_query}}
+        ->
+    {{topic_query}}
+    """
+
+    if value is None:
+        return None
+
+    if not isinstance(value, str):
+        return value
+
+    value = value.strip()
+
+    # Already in GHOST format.
+    match = re.fullmatch(
+        r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}",
+        value,
+    )
+
+    if match:
+        return value
+
+    # $variable format.
+    match = re.fullmatch(
+        r"\$([A-Za-z_][A-Za-z0-9_]*)",
+        value,
+    )
+
+    if match:
+        name = match.group(1)
+
+        if name in variable_names:
+            return "{{" + name + "}}"
+
+    # Bare variable name.
+    if value in variable_names:
+        return "{{" + value + "}}"
+
+    return value
+
+
+# --------------------------------------------------
+# AI RESULT → GHOST SKILL
+# --------------------------------------------------
+
+def skill_from_ai_analysis(
+    analysis,
+):
+    skill_name = analysis.get(
+        "skill_name"
+    )
+
+    description = analysis.get(
+        "description"
+    )
+
+    raw_variables = analysis.get(
+        "variables",
+        [],
+    )
+
+    raw_steps = analysis.get(
+        "steps",
+        [],
+    )
+
+    if not skill_name:
+        raise ValueError(
+            "AI analysis did not provide "
+            "a skill name."
+        )
+
+    if not description:
+        raise ValueError(
+            "AI analysis did not provide "
+            "a skill description."
+        )
+
+    if not raw_steps:
+        raise ValueError(
+            "AI analysis did not provide "
+            "any workflow steps."
+        )
+
+    variables = []
+
+    for variable in raw_variables:
+        name = variable.get(
+            "name"
+        )
+
+        if not name:
+            continue
+
+        variables.append(
+            SkillVariable(
+                name=name,
+                example_value=variable.get(
+                    "example_value"
+                ),
+                description=variable.get(
+                    "description"
+                ),
+            )
+        )
+
+    variable_names = {
+        variable.name
+        for variable in variables
+    }
+
+    steps = []
+
+    for raw_step in raw_steps:
+        action_type = raw_step.get(
+            "action_type"
+        )
+
+        if not action_type:
+            continue
+
+        target = raw_step.get(
+            "target"
+        )
+
+        value = normalize_variable_reference(
+            raw_step.get(
+                "value"
+            ),
+            variable_names,
+        )
+
+        url = raw_step.get(
+            "url"
+        )
+
+        # If the AI represented navigation as:
+        #
+        # navigate
+        # target=search_engine
+        # value=Bing
+        #
+        # don't turn "Bing" into a literal value
+        # that the browser runner cannot understand.
+        #
+        # The runner/provider architecture can choose
+        # the actual search engine.
+        if (
+            action_type == "navigate"
+            and target == "search_engine"
+            and not url
+        ):
+            continue
+
+        steps.append(
+            SkillStep(
+                action_type=action_type,
+                target=target,
+                value=value,
+                url=url,
+            )
+        )
+
+    if not steps:
+        raise ValueError(
+            "AI analysis produced no usable steps."
+        )
+
+    return Skill(
+        name=skill_name,
+        description=description,
+        variables=variables,
+        steps=steps,
+    )
+
+
+# --------------------------------------------------
+# AI GENERALIZATION
+# --------------------------------------------------
+
+def try_ai_generalization(
+    workflow_ids,
+    demonstrations,
+):
+    if not ai_client.is_available():
+        print()
+        print(
+            "👻 AI GENERALIZER → unavailable"
+        )
+        print(
+            "👻 Using local rule-based fallback."
+        )
+
+        return None
+
+    ai_demonstrations = (
+        build_ai_demonstrations(
+            workflow_ids,
+            demonstrations,
+        )
+    )
+
+    print()
+    print(
+        "🧠 GHOST AI → analyzing demonstrations"
+    )
+    print(
+        "-------------------------------------"
+    )
+
+    try:
+        analysis = (
+            ai_client.analyze_demonstrations(
+                ai_demonstrations
+            )
+        )
+
+    except Exception as error:
+        print(
+            f"⚠️ AI workflow analysis failed: "
+            f"{error}"
+        )
+
+        print(
+            "👻 Using local rule-based fallback."
+        )
+
+        return None
+
+    if not analysis:
+        print(
+            "⚠️ AI returned no workflow analysis."
+        )
+
+        print(
+            "👻 Using local rule-based fallback."
+        )
+
+        return None
+
+    try:
+        skill = skill_from_ai_analysis(
+            analysis
+        )
+
+    except Exception as error:
+        print(
+            f"⚠️ Could not convert AI analysis "
+            f"into a GHOST skill: {error}"
+        )
+
+        print(
+            "👻 Using local rule-based fallback."
+        )
+
+        return None
+
+    confidence = analysis.get(
+        "confidence",
+        0.0,
+    )
+
+    intent = analysis.get(
+        "intent",
+        "Unknown",
+    )
+
+    optional_behavior = analysis.get(
+        "optional_behavior",
+        [],
+    )
+
+    print(
+        "✅ AI workflow pattern detected."
+    )
+
+    print()
+    print(
+        f"Intent: {intent}"
+    )
+
+    print(
+        f"Skill: {skill.name}"
+    )
+
+    print(
+        f"Confidence: {confidence:.2f}"
+    )
+
+    if skill.variables:
+        print()
+        print(
+            "Variables detected:"
+        )
+
+        for variable in skill.variables:
+            print(
+                f"- {variable.name} = "
+                f'"{variable.example_value}"'
+            )
+
+    if optional_behavior:
+        print()
+        print(
+            "Optional behavior ignored:"
+        )
+
+        for behavior in optional_behavior:
+            print(
+                f"- {behavior}"
+            )
+
+    print()
+    print(
+        "Semantic steps:"
+    )
+
+    for index, step in enumerate(
+        skill.steps,
+        start=1,
+    ):
+        print(
+            f"{index}. "
+            f"{step.action_type} "
+            f"target={step.target} "
+            f"value={step.value} "
+            f"url={step.url}"
+        )
+
+    return skill
+
+
+# --------------------------------------------------
+# LOCAL FALLBACK HELPERS
+# --------------------------------------------------
 
 def find_meaningful_input(actions):
     return next(
@@ -90,9 +491,12 @@ def find_search_results_navigation(
             and action["action_type"] == "navigate"
             and action["url"]
             and (
-                "/search" in action["url"].lower()
-                or "?q=" in action["url"].lower()
-                or "&q=" in action["url"].lower()
+                "/search"
+                in action["url"].lower()
+                or "?q="
+                in action["url"].lower()
+                or "&q="
+                in action["url"].lower()
             )
         ),
         None,
@@ -106,7 +510,9 @@ def find_external_navigation(
     if search_results_action is None:
         return None
 
-    results_id = search_results_action["id"]
+    results_id = (
+        search_results_action["id"]
+    )
 
     search_domain = get_domain(
         search_results_action["url"]
@@ -116,7 +522,10 @@ def find_external_navigation(
         if action["id"] <= results_id:
             continue
 
-        if action["action_type"] != "navigate":
+        if (
+            action["action_type"]
+            != "navigate"
+        ):
             continue
 
         url = action["url"]
@@ -124,13 +533,13 @@ def find_external_navigation(
         if not url:
             continue
 
-        domain = get_domain(url)
+        domain = get_domain(
+            url
+        )
 
         if not domain:
             continue
 
-        # Different domain means the workflow
-        # continued beyond the search engine.
         if domain != search_domain:
             return action
 
@@ -148,22 +557,27 @@ def find_result_click(
     ):
         return None
 
-    start_id = search_results_action["id"]
-    end_id = external_navigation["id"]
+    start_id = (
+        search_results_action["id"]
+    )
+
+    end_id = (
+        external_navigation["id"]
+    )
 
     clicks = [
         action
         for action in actions
         if action["action_type"] == "click"
-        and start_id < action["id"] < end_id
+        and start_id
+        < action["id"]
+        < end_id
         and action["target"]
     ]
 
     if not clicks:
         return None
 
-    # Usually the final meaningful click before
-    # leaving the search engine is the chosen result.
     return clicks[-1]
 
 
@@ -171,28 +585,38 @@ def analyze_demonstration(
     workflow_id,
     actions,
 ):
-    input_action = find_meaningful_input(
-        actions
+    input_action = (
+        find_meaningful_input(
+            actions
+        )
     )
 
-    start_navigation = find_starting_navigation(
-        actions
+    start_navigation = (
+        find_starting_navigation(
+            actions
+        )
     )
 
-    search_results = find_search_results_navigation(
-        actions,
-        input_action,
+    search_results = (
+        find_search_results_navigation(
+            actions,
+            input_action,
+        )
     )
 
-    external_navigation = find_external_navigation(
-        actions,
-        search_results,
+    external_navigation = (
+        find_external_navigation(
+            actions,
+            search_results,
+        )
     )
 
-    result_click = find_result_click(
-        actions,
-        search_results,
-        external_navigation,
+    result_click = (
+        find_result_click(
+            actions,
+            search_results,
+            external_navigation,
+        )
     )
 
     return {
@@ -202,9 +626,15 @@ def analyze_demonstration(
         "start": start_navigation,
         "search_results": search_results,
         "result_click": result_click,
-        "external_navigation": external_navigation,
+        "external_navigation": (
+            external_navigation
+        ),
     }
 
+
+# --------------------------------------------------
+# LOCAL WEB SEARCH SKILL
+# --------------------------------------------------
 
 def build_web_search_skill(
     analyses,
@@ -221,16 +651,22 @@ def build_web_search_skill(
     ]
 
     unique_starting_urls = list(
-        dict.fromkeys(starting_urls)
+        dict.fromkeys(
+            starting_urls
+        )
     )
 
     steps = []
 
-    if len(unique_starting_urls) == 1:
+    if len(
+        unique_starting_urls
+    ) == 1:
         steps.append(
             SkillStep(
                 action_type="navigate",
-                url=unique_starting_urls[0],
+                url=(
+                    unique_starting_urls[0]
+                ),
             )
         )
 
@@ -258,7 +694,9 @@ def build_web_search_skill(
         variables=[
             SkillVariable(
                 name="query",
-                example_value=example_values[0],
+                example_value=(
+                    example_values[0]
+                ),
                 description=(
                     "Search query identified "
                     "across demonstrations."
@@ -268,6 +706,10 @@ def build_web_search_skill(
         steps=steps,
     )
 
+
+# --------------------------------------------------
+# LOCAL RESEARCH SKILL
+# --------------------------------------------------
 
 def build_research_skill(
     analyses,
@@ -284,7 +726,9 @@ def build_research_skill(
     ]
 
     unique_starting_urls = list(
-        dict.fromkeys(starting_urls)
+        dict.fromkeys(
+            starting_urls
+        )
     )
 
     external_domains = []
@@ -302,16 +746,22 @@ def build_research_skill(
             )
 
     unique_external_domains = list(
-        dict.fromkeys(external_domains)
+        dict.fromkeys(
+            external_domains
+        )
     )
 
     steps = []
 
-    if len(unique_starting_urls) == 1:
+    if len(
+        unique_starting_urls
+    ) == 1:
         steps.append(
             SkillStep(
                 action_type="navigate",
-                url=unique_starting_urls[0],
+                url=(
+                    unique_starting_urls[0]
+                ),
             )
         )
 
@@ -344,10 +794,6 @@ def build_research_skill(
         )
     )
 
-    # NEW:
-    # Research should bring useful information
-    # back from the source instead of only
-    # opening the webpage.
     steps.append(
         SkillStep(
             action_type="extract",
@@ -360,7 +806,9 @@ def build_research_skill(
         "Observed external sources:"
     )
 
-    for domain in unique_external_domains:
+    for domain in (
+        unique_external_domains
+    ):
         print(
             f"- {domain}"
         )
@@ -368,13 +816,16 @@ def build_research_skill(
     return Skill(
         name="research_topic",
         description=(
-            "Search for a topic, open a relevant "
-            "external source, and extract useful content."
+            "Search for a topic, open a "
+            "relevant external source, "
+            "and extract useful content."
         ),
         variables=[
             SkillVariable(
                 name="query",
-                example_value=example_values[0],
+                example_value=(
+                    example_values[0]
+                ),
                 description=(
                     "Research topic identified "
                     "across demonstrations."
@@ -385,25 +836,20 @@ def build_research_skill(
     )
 
 
-def learn_from_demonstrations(
+# --------------------------------------------------
+# LOCAL RULE-BASED GENERALIZER
+# --------------------------------------------------
+
+def local_generalization(
     workflow_ids,
+    demonstrations,
 ):
-    demonstrations = [
-        meaningful_actions(workflow_id)
-        for workflow_id in workflow_ids
-    ]
-
-    if not demonstrations:
-        raise ValueError(
-            "No demonstrations provided."
-        )
-
     print()
     print(
-        "👻 COMPARING DEMONSTRATIONS"
+        "👻 LOCAL GENERALIZER"
     )
     print(
-        "---------------------------"
+        "--------------------"
     )
 
     analyses = []
@@ -412,16 +858,6 @@ def learn_from_demonstrations(
         workflow_ids,
         demonstrations,
     ):
-        signature = [
-            action_signature(action)
-            for action in actions
-        ]
-
-        print(
-            f"Workflow #{workflow_id}: "
-            f"{' → '.join(signature)}"
-        )
-
         analyses.append(
             analyze_demonstration(
                 workflow_id,
@@ -452,35 +888,34 @@ def learn_from_demonstrations(
         for analysis in analyses
     ]
 
-    print()
-    print("👻 PATTERN FOUND")
-    print("----------------")
     print(
         "- all demonstrations contain "
         "meaningful text input"
     )
+
     print(
         "- all demonstrations reach "
         "search results"
     )
+
     print(
         "- query values differ"
     )
 
     print()
-    print("Observed queries:")
+    print(
+        "Observed queries:"
+    )
 
     for value in example_values:
         print(
             f'- "{value}"'
         )
 
-    # --------------------------------------------------
-    # RESEARCH DETECTION
-    # --------------------------------------------------
-
     all_open_external_source = all(
-        analysis["external_navigation"]
+        analysis[
+            "external_navigation"
+        ]
         is not None
         for analysis in analyses
     )
@@ -499,21 +934,27 @@ def learn_from_demonstrations(
         print(
             "👻 HIGHER-LEVEL PATTERN DETECTED"
         )
+
         print(
             "--------------------------------"
         )
+
         print(
             "- search results are inspected"
         )
+
         print(
             "- a result is selected"
         )
+
         print(
             "- workflow continues to "
             "an external information source"
         )
+
         print(
-            "- useful content should be extracted"
+            "- useful content should "
+            "be extracted"
         )
 
         print()
@@ -525,10 +966,6 @@ def learn_from_demonstrations(
             analyses
         )
 
-    # --------------------------------------------------
-    # BASIC SEARCH
-    # --------------------------------------------------
-
     print()
     print(
         "Classification: web_search"
@@ -536,4 +973,69 @@ def learn_from_demonstrations(
 
     return build_web_search_skill(
         analyses
+    )
+
+
+# --------------------------------------------------
+# MAIN GENERALIZATION ENTRY POINT
+# --------------------------------------------------
+
+def learn_from_demonstrations(
+    workflow_ids,
+):
+    demonstrations = [
+        meaningful_actions(
+            workflow_id
+        )
+        for workflow_id in workflow_ids
+    ]
+
+    if not demonstrations:
+        raise ValueError(
+            "No demonstrations provided."
+        )
+
+    print()
+    print(
+        "👻 COMPARING DEMONSTRATIONS"
+    )
+    print(
+        "---------------------------"
+    )
+
+    for workflow_id, actions in zip(
+        workflow_ids,
+        demonstrations,
+    ):
+        signature = [
+            action_signature(
+                action
+            )
+            for action in actions
+        ]
+
+        print(
+            f"Workflow #{workflow_id}: "
+            f"{' → '.join(signature)}"
+        )
+
+    # --------------------------------------------------
+    # AI-FIRST GENERALIZATION
+    # --------------------------------------------------
+
+    ai_skill = try_ai_generalization(
+        workflow_ids,
+        demonstrations,
+    )
+
+    if ai_skill is not None:
+        return ai_skill
+
+    # --------------------------------------------------
+    # LOCAL FALLBACK
+    # --------------------------------------------------
+
+    return local_generalization(
+        workflow_ids,
+        demonstrations,
     )

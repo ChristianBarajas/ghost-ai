@@ -1,20 +1,14 @@
 {
   "name": "research_topic",
-  "description": "Search for a topic, open a relevant external source, and extract useful content.",
+  "description": "Search the web for a topic, open a relevant external source, and use its content for research.",
   "variables": [
     {
       "name": "query",
       "example_value": "what is deep learning",
-      "description": "Research topic identified across demonstrations."
+      "description": "The topic or question to research."
     }
   ],
   "steps": [
-    {
-      "action_type": "navigate",
-      "target": null,
-      "value": null,
-      "url": "https://www.bing.com/"
-    },
     {
       "action_type": "input",
       "target": "search_input",

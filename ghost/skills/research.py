@@ -23,78 +23,150 @@ def get_domain(url):
 # SEARCH RESULTS
 # --------------------------------------------------
 
-def get_result_candidates(page):
-    candidate_groups = [
-        page.locator(
-            "li.b_algo h2 a"
-        ),
-        page.locator(
-            "main h2 a"
-        ),
-        page.locator(
-            "main h3 a"
-        ),
-    ]
+def collect_results_from_selector(
+    page,
+    selector,
+    results,
+    seen,
+):
+    try:
+        group = page.locator(
+            selector
+        )
 
-    results = []
-    seen_text = set()
+        count = group.count()
 
-    for group in candidate_groups:
+    except Exception:
+        return
+
+    for index in range(
+        min(count, 25)
+    ):
+        locator = group.nth(
+            index
+        )
+
         try:
-            count = group.count()
+            if not locator.is_visible():
+                continue
+
+            text = (
+                locator.inner_text()
+                .strip()
+            )
+
+            href = locator.get_attribute(
+                "href"
+            )
+
+            if not text:
+                continue
+
+            if len(text) < 5:
+                continue
+
+            if not href:
+                continue
+
+            key = (
+                text.lower(),
+                href,
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(
+                key
+            )
+
+            results.append(
+                {
+                    "text": text,
+                    "href": href,
+                }
+            )
 
         except Exception:
             continue
 
-        for index in range(
-            min(count, 20)
-        ):
-            locator = group.nth(
-                index
-            )
 
-            try:
-                if not locator.is_visible():
-                    continue
+def get_result_candidates(page):
+    """
+    Find likely search-result links.
 
-                text = (
-                    locator.inner_text()
-                    .strip()
-                )
+    Bing changes its markup occasionally,
+    so GHOST checks several result patterns.
+    """
 
-                href = locator.get_attribute(
-                    "href"
-                )
+    selectors = [
+        "#b_results li.b_algo h2 a",
+        "ol#b_results li.b_algo h2 a",
+        "li.b_algo h2 a",
+        "#b_results h2 a",
+        "main li h2 a",
+        "main h2 a",
+        "main h3 a",
+    ]
 
-                if not text:
-                    continue
+    results = []
+    seen = set()
 
-                if len(text) < 5:
-                    continue
-
-                if not href:
-                    continue
-
-                key = text.lower()
-
-                if key in seen_text:
-                    continue
-
-                seen_text.add(
-                    key
-                )
-
-                results.append(
-                    {
-                        "text": text,
-                        "href": href,
-                    }
-                )
-
-            except Exception:
-                continue
+    for selector in selectors:
+        collect_results_from_selector(
+            page,
+            selector,
+            results,
+            seen,
+        )
 
     return results
+
+
+def wait_for_result_candidates(
+    page,
+    timeout_ms=10000,
+):
+    """
+    Search pages often render results after the
+    first navigation event.
+
+    Instead of checking once, GHOST waits and
+    retries until results appear.
+    """
+
+    print(
+        "👻 RESOLVE → waiting for search results"
+    )
+
+    elapsed = 0
+    interval = 500
+
+    while elapsed < timeout_ms:
+        results = get_result_candidates(
+            page
+        )
+
+        if results:
+            print(
+                f"✅ RESOLVE → found "
+                f"{len(results)} search results"
+            )
+
+            return results
+
+        page.wait_for_timeout(
+            interval
+        )
+
+        elapsed += interval
+
+    print(
+        "❌ RESOLVE → search results "
+        "did not appear"
+    )
+
+    return []
 
 
 def print_result_choice(
@@ -102,6 +174,7 @@ def print_result_choice(
     result,
 ):
     print()
+
     print(
         f"👻 TRYING RESULT #{index + 1}"
     )
@@ -139,6 +212,9 @@ def open_result(
         )
 
     except Exception:
+        # A timeout does not necessarily mean
+        # the page failed. Redirect chains can
+        # trigger Playwright timeouts.
         pass
 
     try:
@@ -276,7 +352,8 @@ def extract_page_content(
     if not content:
         if not quiet:
             print(
-                "❌ Could not extract page content."
+                "❌ Could not extract "
+                "page content."
             )
 
         return None
@@ -333,7 +410,7 @@ def check_source_quality(
 
 
 # --------------------------------------------------
-# RETRY LOOP
+# RESEARCH RETRY LOOP
 # --------------------------------------------------
 
 def find_useful_research_source(
@@ -341,15 +418,29 @@ def find_useful_research_source(
     query,
     max_attempts=5,
 ):
+    """
+    Find search results, then try them until
+    one produces useful research content.
+    """
+
     results_url = page.url
 
-    results = get_result_candidates(
-        page
+    # NEW:
+    # Wait for Bing's rendered results instead
+    # of checking the DOM immediately.
+    results = wait_for_result_candidates(
+        page,
+        timeout_ms=10000,
     )
 
     if not results:
+        print()
         print(
             "❌ No search results found."
+        )
+
+        print(
+            f"Current page: {page.url}"
         )
 
         return (
@@ -375,6 +466,8 @@ def find_useful_research_source(
             index
         ]
 
+        # Return to results before trying
+        # another source.
         if page.url != results_url:
             try:
                 page.goto(
@@ -386,8 +479,17 @@ def find_useful_research_source(
             except Exception:
                 pass
 
+            try:
+                page.wait_for_load_state(
+                    "domcontentloaded",
+                    timeout=5000,
+                )
+
+            except Exception:
+                pass
+
             page.wait_for_timeout(
-                500
+                750
             )
 
         print_result_choice(
@@ -402,7 +504,8 @@ def find_useful_research_source(
 
         if not opened:
             print(
-                "⚠️ Result could not be opened."
+                "⚠️ Result could not "
+                "be opened."
             )
 
             continue
@@ -482,9 +585,9 @@ def build_research_result(
         "",
     )
 
-    # ----------------------------------------------
-    # TRY AI FIRST
-    # ----------------------------------------------
+    # --------------------------------------------------
+    # AI FIRST
+    # --------------------------------------------------
 
     if ai_client.is_available():
         print()
@@ -501,7 +604,8 @@ def build_research_result(
 
         except Exception as error:
             print(
-                f"⚠️ AI summarization failed: {error}"
+                f"⚠️ AI summarization failed: "
+                f"{error}"
             )
 
             ai_result = None
@@ -529,13 +633,14 @@ def build_research_result(
                     "summary_source": "ai",
                 }
 
-    # ----------------------------------------------
+    # --------------------------------------------------
     # LOCAL FALLBACK
-    # ----------------------------------------------
+    # --------------------------------------------------
 
     print()
     print(
-        "👻 LOCAL FALLBACK → summarizing content"
+        "👻 LOCAL FALLBACK → "
+        "summarizing content"
     )
     print(
         "--------------------------------------"
@@ -573,7 +678,7 @@ def build_research_result(
 
 
 # --------------------------------------------------
-# PRINT RESULT
+# PRINT RESEARCH RESULT
 # --------------------------------------------------
 
 def print_research_result(

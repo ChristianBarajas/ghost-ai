@@ -1,0 +1,48 @@
+{
+  "name": "research_topic_via_web_search",
+  "description": "Search the web for an informational topic and open a relevant external source explaining it.",
+  "variables": [
+    {
+      "name": "topic",
+      "example_value": "deep learning",
+      "description": "The concept or subject the user wants to understand."
+    },
+    {
+      "name": "search_engine",
+      "example_value": "Bing",
+      "description": "The web search engine used to find relevant information."
+    }
+  ],
+  "steps": [
+    {
+      "action_type": "navigate",
+      "target": "search_engine_homepage",
+      "value": null,
+      "url": null
+    },
+    {
+      "action_type": "input",
+      "target": "search_input",
+      "value": "what is {topic}",
+      "url": null
+    },
+    {
+      "action_type": "submit",
+      "target": "search_input",
+      "value": null,
+      "url": null
+    },
+    {
+      "action_type": "open",
+      "target": "relevant_result",
+      "value": null,
+      "url": null
+    },
+    {
+      "action_type": "verify",
+      "target": "external_source",
+      "value": null,
+      "url": null
+    }
+  ]
+}

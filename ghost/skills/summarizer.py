@@ -102,15 +102,70 @@ def clean_content(text):
         if len(line) < 20:
             continue
 
-        lines.append(line)
+        lines.append(
+            line
+        )
 
-    return " ".join(lines)
+    return " ".join(
+        lines
+    )
 
 
 def tokenize(text):
     return re.findall(
         r"\b[a-zA-Z]{3,}\b",
         text.lower(),
+    )
+
+
+def meaningful_query_words(query):
+    return [
+        word
+        for word in tokenize(
+            query or ""
+        )
+        if word not in STOP_WORDS
+    ]
+
+
+def query_relevance_score(
+    title,
+    content,
+    query,
+):
+    query_words = meaningful_query_words(
+        query
+    )
+
+    if not query_words:
+        return 1.0
+
+    title_words = set(
+        tokenize(
+            title or ""
+        )
+    )
+
+    content_words = set(
+        tokenize(
+            (content or "")[:12000]
+        )
+    )
+
+    matched_words = set()
+
+    for word in query_words:
+        if (
+            word in title_words
+            or word in content_words
+        ):
+            matched_words.add(
+                word
+            )
+
+    return (
+        len(matched_words)
+        / len(set(query_words))
     )
 
 
@@ -130,14 +185,15 @@ def is_useful_source(
     combined = (
         title_lower
         + " "
-        + content_lower[:4000]
+        + content_lower[:5000]
     )
 
     # Reject obvious error pages.
     for phrase in ERROR_PHRASES:
         if phrase in combined:
-            return False, (
-                f"error page detected: {phrase}"
+            return (
+                False,
+                f"error page detected: {phrase}",
             )
 
     cleaned = clean_content(
@@ -145,11 +201,12 @@ def is_useful_source(
     )
 
     if len(cleaned) < 300:
-        return False, (
-            "not enough readable content"
+        return (
+            False,
+            "not enough readable content",
         )
 
-    # Detect pages dominated by cookie/privacy text.
+    # Reject pages dominated by cookie/privacy text.
     junk_hits = sum(
         1
         for phrase in JUNK_PHRASES
@@ -157,40 +214,74 @@ def is_useful_source(
     )
 
     if junk_hits >= 2:
-        return False, (
+        return (
+            False,
             "page appears dominated by "
-            "cookie/privacy content"
+            "cookie/privacy content",
         )
 
-    # Check whether the page has at least some
-    # vocabulary related to the user's query.
-    query_words = {
-        word
-        for word in tokenize(
-            query or ""
-        )
-        if word not in STOP_WORDS
-    }
+    # --------------------------------------------------
+    # QUERY RELEVANCE
+    # --------------------------------------------------
 
-    content_words = set(
+    relevance = query_relevance_score(
+        title,
+        cleaned,
+        query,
+    )
+
+    # Require most meaningful query terms to
+    # appear somewhere in the page.
+    #
+    # Example:
+    # "artificial general intelligence"
+    #
+    # A dictionary page containing only
+    # "artificial" should fail.
+    if relevance < 0.67:
+        return (
+            False,
+            "source is not relevant enough "
+            f"to the full query "
+            f"(relevance={relevance:.2f})",
+        )
+
+    # Stronger title check for multi-word topics.
+    query_words = meaningful_query_words(
+        query
+    )
+
+    title_words = set(
         tokenize(
-            cleaned[:8000]
+            title or ""
         )
     )
 
-    if query_words:
-        overlap = (
-            query_words
-            & content_words
+    if len(query_words) >= 2:
+        title_matches = sum(
+            1
+            for word in set(query_words)
+            if word in title_words
         )
 
-        if not overlap:
-            return False, (
-                "content does not appear "
-                "related to the query"
+        # If the title matches none or only one
+        # important word, require extremely strong
+        # body relevance.
+        if (
+            title_matches <= 1
+            and relevance < 0.90
+        ):
+            return (
+                False,
+                "page title does not appear "
+                "specific enough to the query",
             )
 
-    return True, "source looks useful"
+    return (
+        True,
+        f"source looks useful "
+        f"(relevance={relevance:.2f})",
+    )
 
 
 def split_sentences(text):
@@ -238,8 +329,8 @@ def summarize_content(
     )
 
     query_words = set(
-        tokenize(
-            query or ""
+        meaningful_query_words(
+            query
         )
     )
 
