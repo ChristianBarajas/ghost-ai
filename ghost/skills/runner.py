@@ -1,6 +1,7 @@
 from playwright.sync_api import sync_playwright
 
 from ghost.skills.storage import load_skill
+from ghost.skills.providers import get_provider
 
 
 def replace_variables(value, variables):
@@ -17,17 +18,13 @@ def replace_variables(value, variables):
 
 
 def resolve_semantic_target(page, target):
-    """
-    Convert a semantic GHOST target into
-    a real Playwright locator.
-    """
-
     if target == "search_input":
-        print("👻 RESOLVE → looking for search input")
+        print(
+            "👻 RESOLVE → looking for search input"
+        )
 
         candidates = [
             page.locator('input[type="search"]'),
-            page.locator('textarea[type="search"]'),
             page.get_by_role("searchbox"),
             page.locator(
                 'input[placeholder*="search" i]'
@@ -55,24 +52,18 @@ def resolve_semantic_target(page, target):
                             "✅ RESOLVE → search input found"
                         )
                         return element
+
             except Exception:
                 continue
 
         print(
-            "❌ RESOLVE → could not find search input"
+            "❌ RESOLVE → search input not found"
         )
-
-        return None
 
     return None
 
 
 def resolve_literal_target(page, target):
-    """
-    Fallback for older learned workflows
-    that still contain literal DOM labels.
-    """
-
     candidates = [
         page.get_by_label(
             target,
@@ -93,19 +84,26 @@ def resolve_literal_target(page, target):
         try:
             if locator.count() > 0:
                 return locator.first
+
         except Exception:
             continue
 
     return None
 
 
-def verify_skill(skill, page, variables):
+def verify_skill(
+    skill,
+    page,
+    variables,
+):
     print()
     print("👻 VERIFYING RESULT")
     print("-------------------")
 
     if skill.name == "web_search":
-        query = variables.get("query")
+        query = variables.get(
+            "query"
+        )
 
         if not query:
             print(
@@ -115,33 +113,13 @@ def verify_skill(skill, page, variables):
 
         current_url = page.url.lower()
 
-        query_words = [
-            word.lower()
-            for word in query.split()
-            if len(word) > 2
-        ]
-
-        url_match = any(
-            word in current_url
-            for word in query_words
+        looks_like_results_url = (
+            "/search" in current_url
+            or "?q=" in current_url
+            or "&q=" in current_url
         )
 
-        try:
-            page_text = (
-                page
-                .locator("body")
-                .inner_text()
-                .lower()
-            )
-        except Exception:
-            page_text = ""
-
-        page_match = any(
-            word in page_text
-            for word in query_words
-        )
-
-        if url_match or page_match:
+        if looks_like_results_url:
             print(
                 "✅ Search results detected."
             )
@@ -170,12 +148,93 @@ def verify_skill(skill, page, variables):
     return None
 
 
+def submit_search(
+    page,
+    locator,
+    provider,
+):
+    old_url = page.url
+
+    submit_strategy = (
+        provider.get("submit_strategy")
+        if provider
+        else "enter"
+    )
+
+    if submit_strategy == "form":
+        print(
+            "👻 SUBMIT → submitting parent form"
+        )
+
+        try:
+            submitted = locator.evaluate(
+                """
+                element => {
+                    if (!element.form) {
+                        return false;
+                    }
+
+                    element.form.requestSubmit();
+                    return true;
+                }
+                """
+            )
+
+        except Exception:
+            submitted = False
+
+        if not submitted:
+            print(
+                "⚠️ Form submission unavailable. "
+                "Falling back to ENTER."
+            )
+
+            locator.press(
+                "Enter"
+            )
+
+    else:
+        print(
+            "👻 SUBMIT → pressing ENTER"
+        )
+
+        locator.press(
+            "Enter"
+        )
+
+    try:
+        page.wait_for_url(
+            lambda current_url:
+                current_url != old_url,
+            timeout=5000,
+        )
+
+        print(
+            "👻 RESULT → page changed"
+        )
+
+    except Exception:
+        print(
+            "⚠️ No URL change detected."
+        )
+
+    page.wait_for_timeout(
+        750
+    )
+
+
 def run_skill(
     skill_name: str,
     variables: dict,
+    provider_name=None,
 ):
     skill = load_skill(
         skill_name
+    )
+
+    provider = get_provider(
+        skill_name,
+        provider_name,
     )
 
     print()
@@ -185,6 +244,11 @@ def run_skill(
         f"Skill: {skill.name}"
     )
 
+    if provider:
+        print(
+            f"Provider: {provider['name']}"
+        )
+
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=False
@@ -192,7 +256,25 @@ def run_skill(
 
         page = browser.new_page()
 
+        # ------------------------------------------
+        # PROVIDER / ENVIRONMENT
+        # ------------------------------------------
+
+        if provider:
+            print(
+                f"👻 OPEN → {provider['start_url']}"
+            )
+
+            page.goto(
+                provider["start_url"],
+                wait_until="domcontentloaded",
+            )
+
         last_input_locator = None
+
+        # ------------------------------------------
+        # RUN LEARNED SKILL
+        # ------------------------------------------
 
         for step in skill.steps:
             target = replace_variables(
@@ -210,10 +292,7 @@ def run_skill(
                 variables,
             )
 
-            # ----------------------------------
             # NAVIGATE
-            # ----------------------------------
-
             if step.action_type == "navigate":
                 print(
                     f"👻 OPEN → {url}"
@@ -224,10 +303,7 @@ def run_skill(
                     wait_until="domcontentloaded",
                 )
 
-            # ----------------------------------
             # INPUT
-            # ----------------------------------
-
             elif step.action_type == "input":
                 print(
                     f'👻 TYPE → {target}: "{value}"'
@@ -249,7 +325,7 @@ def run_skill(
 
                 if locator is None:
                     print(
-                        f"⚠️ Could not resolve input: "
+                        f"❌ Could not resolve input: "
                         f"{target}"
                     )
 
@@ -261,68 +337,38 @@ def run_skill(
                     value
                 )
 
-            # ----------------------------------
             # SUBMIT
-            # ----------------------------------
-
             elif step.action_type == "submit":
                 print(
                     f"👻 SUBMIT → {target}"
                 )
 
-                locator = None
+                locator = last_input_locator
 
-                if target == "search_input":
-                    if last_input_locator is not None:
-                        locator = last_input_locator
-                    else:
-                        locator = resolve_semantic_target(
-                            page,
-                            target,
-                        )
+                if (
+                    locator is None
+                    and target == "search_input"
+                ):
+                    locator = resolve_semantic_target(
+                        page,
+                        target,
+                    )
 
                 if locator is None:
                     print(
-                        "❌ Could not find element "
-                        "to submit."
+                        "❌ Could not resolve "
+                        "submission target."
                     )
 
                     continue
 
-                print(
-                    "👻 SUBMIT → pressing ENTER"
+                submit_search(
+                    page,
+                    locator,
+                    provider,
                 )
 
-                old_url = page.url
-
-                locator.press(
-                    "Enter"
-                )
-
-                try:
-                    page.wait_for_url(
-                        lambda current_url:
-                            current_url != old_url,
-                        timeout=5000,
-                    )
-
-                    print(
-                        "👻 RESULT → page changed"
-                    )
-
-                except Exception:
-                    print(
-                        "⚠️ No URL change detected."
-                    )
-
-                page.wait_for_timeout(
-                    750
-                )
-
-            # ----------------------------------
             # OLD CLICK SUPPORT
-            # ----------------------------------
-
             elif step.action_type == "click":
                 print(
                     f"👻 ACTION → {target}"
@@ -361,6 +407,10 @@ def run_skill(
                     750
                 )
 
+        # ------------------------------------------
+        # VERIFY
+        # ------------------------------------------
+
         result = verify_skill(
             skill,
             page,
@@ -371,20 +421,17 @@ def run_skill(
 
         if result is True:
             print(
-                "✅ GHOST verified successful "
-                "completion."
+                "✅ GHOST verified successful completion."
             )
 
         elif result is False:
             print(
-                "❌ GHOST could not verify "
-                "completion."
+                "❌ GHOST could not verify completion."
             )
 
         else:
             print(
-                "⚠️ Workflow finished without "
-                "verification."
+                "⚠️ Workflow finished without verification."
             )
 
         print()

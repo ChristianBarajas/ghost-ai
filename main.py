@@ -94,6 +94,10 @@ def main():
         "--query",
     )
 
+    run_skill_parser.add_argument(
+        "--provider",
+    )
+
     # COMPARE
     compare_parser = subparsers.add_parser(
         "compare",
@@ -227,6 +231,7 @@ def main():
         run_skill(
             args.skill_name,
             variables,
+            provider_name=args.provider,
         )
 
     elif args.command == "compare":

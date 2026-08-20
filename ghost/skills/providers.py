@@ -2,9 +2,11 @@ PROVIDERS = {
     "web_search": {
         "duckduckgo": {
             "start_url": "https://duckduckgo.com/",
+            "submit_strategy": "enter",
         },
         "bing": {
             "start_url": "https://www.bing.com/",
+            "submit_strategy": "form",
         },
     }
 }
@@ -19,6 +21,13 @@ def get_provider(
     skill_name: str,
     provider_name=None,
 ):
+    """
+    Return provider configuration for a skill.
+
+    If no provider is explicitly requested,
+    use the default provider for that skill.
+    """
+
     skill_providers = PROVIDERS.get(
         skill_name,
         {}
@@ -44,7 +53,7 @@ def get_provider(
         raise ValueError(
             f"Unknown provider '{provider_name}' "
             f"for skill '{skill_name}'. "
-            f"Available: {available}"
+            f"Available providers: {available}"
         )
 
     return {
