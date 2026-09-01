@@ -423,7 +423,7 @@ def run_research_step(
         find_useful_research_source(
             page,
             query,
-            max_attempts=5,
+            max_attempts=10,
         )
     )
 

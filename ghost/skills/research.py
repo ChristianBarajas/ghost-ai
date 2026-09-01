@@ -19,6 +19,61 @@ def get_domain(url):
     return urlparse(url).netloc.lower()
 
 
+def is_http_url(url):
+    if not url:
+        return False
+
+    return (
+        url.startswith("http://")
+        or url.startswith("https://")
+    )
+
+
+def is_junk_result(text, href):
+    """
+    Reject links that clearly are not useful
+    search-result destinations.
+    """
+
+    text_lower = (text or "").lower()
+    href_lower = (href or "").lower()
+
+    junk_text = {
+        "images",
+        "videos",
+        "maps",
+        "news",
+        "shopping",
+        "sign in",
+        "settings",
+        "privacy",
+        "terms",
+        "feedback",
+        "cached",
+    }
+
+    if text_lower.strip() in junk_text:
+        return True
+
+    junk_href_parts = [
+        "javascript:",
+        "/account/",
+        "/settings/",
+        "/privacy",
+        "/terms",
+        "bing.com/images",
+        "bing.com/videos",
+        "bing.com/maps",
+        "duckduckgo.com/settings",
+    ]
+
+    for part in junk_href_parts:
+        if part in href_lower:
+            return True
+
+    return False
+
+
 # --------------------------------------------------
 # SEARCH RESULTS
 # --------------------------------------------------
@@ -30,21 +85,16 @@ def collect_results_from_selector(
     seen,
 ):
     try:
-        group = page.locator(
-            selector
-        )
-
+        group = page.locator(selector)
         count = group.count()
 
     except Exception:
         return
 
     for index in range(
-        min(count, 25)
+        min(count, 40)
     ):
-        locator = group.nth(
-            index
-        )
+        locator = group.nth(index)
 
         try:
             if not locator.is_visible():
@@ -68,6 +118,12 @@ def collect_results_from_selector(
             if not href:
                 continue
 
+            if is_junk_result(
+                text,
+                href,
+            ):
+                continue
+
             key = (
                 text.lower(),
                 href,
@@ -76,9 +132,7 @@ def collect_results_from_selector(
             if key in seen:
                 continue
 
-            seen.add(
-                key
-            )
+            seen.add(key)
 
             results.append(
                 {
@@ -95,19 +149,71 @@ def get_result_candidates(page):
     """
     Find likely search-result links.
 
-    Bing changes its markup occasionally,
-    so GHOST checks several result patterns.
+    GHOST first checks provider-specific
+    selectors and then progressively falls
+    back to more generic result patterns.
     """
 
-    selectors = [
+    current_domain = get_domain(
+        page.url
+    ) or ""
+
+    # --------------------------------------------------
+    # BING
+    # --------------------------------------------------
+
+    bing_selectors = [
         "#b_results li.b_algo h2 a",
         "ol#b_results li.b_algo h2 a",
         "li.b_algo h2 a",
         "#b_results h2 a",
-        "main li h2 a",
+        "#b_results .b_algo a",
+        "main li.b_algo h2 a",
+        "main h2 a",
+    ]
+
+    # --------------------------------------------------
+    # DUCKDUCKGO
+    # --------------------------------------------------
+
+    duckduckgo_selectors = [
+        'a[data-testid="result-title-a"]',
+        '[data-testid="result"] a[data-testid="result-title-a"]',
+        "article h2 a",
+        "article h3 a",
+        ".result__title a",
+        ".result__a",
+        ".results_links_deep a.result__a",
+        "#links .result__title a",
+    ]
+
+    # --------------------------------------------------
+    # GENERIC FALLBACK
+    # --------------------------------------------------
+
+    generic_selectors = [
         "main h2 a",
         "main h3 a",
+        "article h2 a",
+        "article h3 a",
+        '[role="main"] h2 a',
+        '[role="main"] h3 a',
     ]
+
+    if "duckduckgo.com" in current_domain:
+        selectors = (
+            duckduckgo_selectors
+            + generic_selectors
+        )
+
+    elif "bing.com" in current_domain:
+        selectors = (
+            bing_selectors
+            + generic_selectors
+        )
+
+    else:
+        selectors = generic_selectors
 
     results = []
     seen = set()
@@ -120,19 +226,88 @@ def get_result_candidates(page):
             seen,
         )
 
+    # --------------------------------------------------
+    # LAST-RESORT LINK DISCOVERY
+    # --------------------------------------------------
+
+    if not results:
+        try:
+            links = page.locator(
+                "main a[href]"
+            )
+
+            count = min(
+                links.count(),
+                100,
+            )
+
+            for index in range(count):
+                locator = links.nth(index)
+
+                try:
+                    if not locator.is_visible():
+                        continue
+
+                    text = (
+                        locator.inner_text()
+                        .strip()
+                    )
+
+                    href = locator.get_attribute(
+                        "href"
+                    )
+
+                    if not text:
+                        continue
+
+                    if len(text) < 10:
+                        continue
+
+                    if not href:
+                        continue
+
+                    if is_junk_result(
+                        text,
+                        href,
+                    ):
+                        continue
+
+                    key = (
+                        text.lower(),
+                        href,
+                    )
+
+                    if key in seen:
+                        continue
+
+                    seen.add(key)
+
+                    results.append(
+                        {
+                            "text": text,
+                            "href": href,
+                        }
+                    )
+
+                except Exception:
+                    continue
+
+        except Exception:
+            pass
+
     return results
 
 
 def wait_for_result_candidates(
     page,
-    timeout_ms=10000,
+    timeout_ms=15000,
 ):
     """
-    Search pages often render results after the
-    first navigation event.
+    Search pages often render results after
+    the initial navigation event.
 
-    Instead of checking once, GHOST waits and
-    retries until results appear.
+    GHOST repeatedly checks the DOM instead
+    of assuming results already exist.
     """
 
     print(
@@ -212,9 +387,9 @@ def open_result(
         )
 
     except Exception:
-        # A timeout does not necessarily mean
-        # the page failed. Redirect chains can
-        # trigger Playwright timeouts.
+        # Redirect chains occasionally trigger
+        # Playwright timeouts even when navigation
+        # ultimately succeeds.
         pass
 
     try:
@@ -253,9 +428,7 @@ def clean_page_text(text):
         if not line:
             continue
 
-        lines.append(
-            line
-        )
+        lines.append(line)
 
     return "\n".join(
         lines
@@ -303,12 +476,8 @@ def extract_page_content(
     content = ""
 
     candidates = [
-        page.locator(
-            "article"
-        ),
-        page.locator(
-            "main"
-        ),
+        page.locator("article"),
+        page.locator("main"),
         page.locator(
             '[role="main"]'
         ),
@@ -416,7 +585,7 @@ def check_source_quality(
 def find_useful_research_source(
     page,
     query,
-    max_attempts=5,
+    max_attempts=10,
 ):
     """
     Find search results, then try them until
@@ -425,12 +594,9 @@ def find_useful_research_source(
 
     results_url = page.url
 
-    # NEW:
-    # Wait for Bing's rendered results instead
-    # of checking the DOM immediately.
     results = wait_for_result_candidates(
         page,
-        timeout_ms=10000,
+        timeout_ms=15000,
     )
 
     if not results:
@@ -466,8 +632,8 @@ def find_useful_research_source(
             index
         ]
 
-        # Return to results before trying
-        # another source.
+        # Return to the original search page
+        # before testing another candidate.
         if page.url != results_url:
             try:
                 page.goto(
@@ -553,6 +719,7 @@ def find_useful_research_source(
         )
 
     print()
+
     print(
         "❌ GHOST could not find "
         "a useful source."
@@ -591,6 +758,7 @@ def build_research_result(
 
     if ai_client.is_available():
         print()
+
         print(
             "🧠 GHOST AI → analyzing research"
         )
@@ -638,10 +806,12 @@ def build_research_result(
     # --------------------------------------------------
 
     print()
+
     print(
         "👻 LOCAL FALLBACK → "
         "summarizing content"
     )
+
     print(
         "--------------------------------------"
     )
@@ -688,9 +858,11 @@ def print_research_result(
         return
 
     print()
+
     print(
         "👻 GHOST RESEARCH RESULT"
     )
+
     print(
         "------------------------"
     )
@@ -717,9 +889,11 @@ def print_research_result(
     )
 
     print()
+
     print(
         "SUMMARY"
     )
+
     print(
         "-------"
     )
@@ -729,9 +903,11 @@ def print_research_result(
     )
 
     print()
+
     print(
         "KEY TERMS"
     )
+
     print(
         "---------"
     )
