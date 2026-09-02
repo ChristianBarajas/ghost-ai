@@ -719,6 +719,19 @@ def run_skill(
                 "without verification."
             )
 
+        return {
+            "success": result is True,
+            "verified": result,
+            "skill": skill.name,
+            "provider": (
+                provider["name"]
+                if provider
+                else None
+            ),
+            "variables": variables,
+            "result": research_result,
+        }
+
         print()
         print(
             "Press ENTER to close the browser."
