@@ -1,16 +1,23 @@
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from ghost.memory.database import (
+    create_task_record,
+    get_task_record,
+    initialize_database,
+    list_task_records,
+    update_task_record,
+)
 from ghost.skills.runner import run_skill
 
 
 app = FastAPI(
     title="GHOST API",
     description="API for the GHOST AI workflow-learning agent.",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 
@@ -21,6 +28,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --------------------------------------------------
+# DATABASE
+# --------------------------------------------------
+
+initialize_database()
 
 
 # --------------------------------------------------
@@ -59,24 +73,15 @@ class TaskResponse(BaseModel):
     skill: Optional[str] = None
     result: Optional[ResearchResult] = None
     error: Optional[str] = None
-
-
-# --------------------------------------------------
-# TEMPORARY IN-MEMORY TASK STORE
-# --------------------------------------------------
-
-tasks: Dict[int, Dict[str, Any]] = {}
-
-next_task_id = 1
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
 
 
 # --------------------------------------------------
 # HELPERS
 # --------------------------------------------------
 
-def clean_ghost_result(
-    ghost_result,
-):
+def clean_ghost_result(ghost_result):
     if not ghost_result:
         return {
             "success": False,
@@ -85,26 +90,16 @@ def clean_ghost_result(
             "result": None,
         }
 
-    raw_result = ghost_result.get(
-        "result"
-    )
+    raw_result = ghost_result.get("result")
 
     clean_result = None
 
     if raw_result:
         clean_result = {
-            "title": raw_result.get(
-                "title"
-            ),
-            "url": raw_result.get(
-                "url"
-            ),
-            "domain": raw_result.get(
-                "domain"
-            ),
-            "summary": raw_result.get(
-                "summary"
-            ),
+            "title": raw_result.get("title"),
+            "url": raw_result.get("url"),
+            "domain": raw_result.get("domain"),
+            "summary": raw_result.get("summary"),
             "key_terms": raw_result.get(
                 "key_terms",
                 [],
@@ -138,7 +133,7 @@ def health():
     return {
         "ok": True,
         "service": "ghost-api",
-        "version": "0.2.0",
+        "version": "0.3.0",
     }
 
 
@@ -153,24 +148,10 @@ def health():
 def create_task(
     request: ResearchTaskRequest,
 ):
-    global next_task_id
-
-    task_id = next_task_id
-    next_task_id += 1
-
-    task = {
-        "task_id": task_id,
-        "status": "running",
-        "query": request.query,
-        "provider": request.provider,
-        "success": None,
-        "verified": None,
-        "skill": None,
-        "result": None,
-        "error": None,
-    }
-
-    tasks[task_id] = task
+    task_id = create_task_record(
+        request.query,
+        request.provider,
+    )
 
     try:
         ghost_result = run_skill(
@@ -185,33 +166,36 @@ def create_task(
             ghost_result
         )
 
-        task["success"] = clean_result[
-            "success"
-        ]
+        success = clean_result["success"]
 
-        task["verified"] = clean_result[
-            "verified"
-        ]
-
-        task["skill"] = clean_result[
-            "skill"
-        ]
-
-        task["result"] = clean_result[
-            "result"
-        ]
-
-        if task["success"]:
-            task["status"] = "completed"
-        else:
-            task["status"] = "failed"
+        update_task_record(
+            task_id,
+            status=(
+                "completed"
+                if success
+                else "failed"
+            ),
+            success=success,
+            verified=clean_result["verified"],
+            skill=clean_result["skill"],
+            result=clean_result["result"],
+        )
 
     except Exception as error:
-        task["status"] = "failed"
-        task["success"] = False
-        task["verified"] = False
-        task["error"] = str(
-            error
+        update_task_record(
+            task_id,
+            status="failed",
+            success=False,
+            verified=False,
+            error=str(error),
+        )
+
+    task = get_task_record(task_id)
+
+    if task is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Task could not be loaded.",
         )
 
     return task
@@ -228,9 +212,7 @@ def create_task(
 def get_task(
     task_id: int,
 ):
-    task = tasks.get(
-        task_id
-    )
+    task = get_task_record(task_id)
 
     if task is None:
         raise HTTPException(
@@ -250,6 +232,4 @@ def get_task(
     response_model=List[TaskResponse],
 )
 def list_tasks():
-    return list(
-        tasks.values()
-    )
+    return list_task_records()

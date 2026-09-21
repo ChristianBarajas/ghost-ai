@@ -12,6 +12,7 @@ import "./App.css";
 import {
   checkGhostHealth,
   createGhostTask,
+  getGhostTasks,
 } from "./services/ghostApi";
 
 import type {
@@ -42,6 +43,11 @@ function App() {
   );
 
   const [
+    taskHistory,
+    setTaskHistory,
+  ] = useState<GhostTask[]>([]);
+
+  const [
     isRunning,
     setIsRunning,
   ] = useState(false);
@@ -59,18 +65,32 @@ function App() {
   );
 
 
+  async function loadTaskHistory() {
+    try {
+      const tasks = await getGhostTasks();
+
+      setTaskHistory(tasks);
+    } catch {
+      // History failure should not make
+      // the entire GHOST interface unusable.
+    }
+  }
+
+
   useEffect(() => {
-    async function checkHealth() {
+    async function initializeGhost() {
       try {
         await checkGhostHealth();
 
         setBackendOnline(true);
+
+        await loadTaskHistory();
       } catch {
         setBackendOnline(false);
       }
     }
 
-    checkHealth();
+    initializeGhost();
   }, []);
 
 
@@ -97,6 +117,8 @@ function App() {
         });
 
       setTask(result);
+
+      await loadTaskHistory();
     } catch (requestError) {
       if (
         requestError
@@ -113,6 +135,33 @@ function App() {
     } finally {
       setIsRunning(false);
     }
+  }
+
+
+  function formatTaskDate(
+    date: string | null,
+  ) {
+    if (!date) {
+      return "Unknown time";
+    }
+
+    const parsedDate = new Date(
+      date.replace(" ", "T") + "Z",
+    );
+
+    return parsedDate.toLocaleString();
+  }
+
+
+  function openHistoryTask(
+    historyTask: GhostTask,
+  ) {
+    setTask(historyTask);
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 
 
@@ -171,9 +220,7 @@ function App() {
           className="task-form"
           onSubmit={handleSubmit}
         >
-          <label
-            htmlFor="ghost-query"
-          >
+          <label htmlFor="ghost-query">
             What should GHOST research?
           </label>
 
@@ -191,9 +238,7 @@ function App() {
 
           <div className="form-footer">
             <div className="provider-control">
-              <label
-                htmlFor="provider"
-              >
+              <label htmlFor="provider">
                 Provider
               </label>
 
@@ -230,6 +275,7 @@ function App() {
           </div>
         </form>
       </section>
+
 
       {isRunning && (
         <section className="panel execution-panel">
@@ -281,6 +327,7 @@ function App() {
         </section>
       )}
 
+
       {error && (
         <section className="panel error-panel">
           <p className="eyebrow">
@@ -297,6 +344,7 @@ function App() {
         </section>
       )}
 
+
       {task && (
         <section className="panel result-panel">
           <div className="result-header">
@@ -307,7 +355,7 @@ function App() {
 
               <h3>
                 {task.result?.title
-                  ?? "GHOST Result"}
+                  ?? task.query}
               </h3>
             </div>
 
@@ -326,20 +374,17 @@ function App() {
 
           <div className="result-meta">
             <span>
-              Skill:
-              {" "}
-              {task.skill}
+              Skill:{" "}
+              {task.skill ?? "Unknown"}
             </span>
 
             <span>
-              Provider:
-              {" "}
+              Provider:{" "}
               {task.provider}
             </span>
 
             <span>
-              Task:
-              {" "}
+              Task:{" "}
               #{task.task_id}
             </span>
           </div>
@@ -379,8 +424,107 @@ function App() {
               )}
             </>
           )}
+
+          {task.error && (
+            <div className="summary-card">
+              <p className="summary">
+                {task.error}
+              </p>
+            </div>
+          )}
         </section>
       )}
+
+
+      <section className="panel history-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">
+              MEMORY
+            </p>
+
+            <h3>
+              Recent Runs
+            </h3>
+          </div>
+
+          <span className="history-count">
+            {taskHistory.length} saved
+          </span>
+        </div>
+
+        {taskHistory.length === 0 ? (
+          <div className="history-empty">
+            <p>
+              GHOST has no saved runs yet.
+            </p>
+
+            <span>
+              Completed tasks will appear here.
+            </span>
+          </div>
+        ) : (
+          <div className="history-list">
+            {taskHistory.map(
+              (historyTask) => (
+                <button
+                  key={historyTask.task_id}
+                  type="button"
+                  className="history-item"
+                  onClick={() =>
+                    openHistoryTask(
+                      historyTask,
+                    )
+                  }
+                >
+                  <div className="history-main">
+                    <span
+                      className={
+                        historyTask.verified
+                          ? "history-indicator verified"
+                          : "history-indicator failed"
+                      }
+                    />
+
+                    <div>
+                      <strong>
+                        {historyTask.query}
+                      </strong>
+
+                      <p>
+                        {historyTask.skill
+                          ?? "Unknown skill"}
+                        {" · "}
+                        {historyTask.provider}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="history-meta">
+                    <span
+                      className={
+                        historyTask.verified
+                          ? "history-status verified"
+                          : "history-status failed"
+                      }
+                    >
+                      {historyTask.verified
+                        ? "Verified"
+                        : historyTask.status}
+                    </span>
+
+                    <time>
+                      {formatTaskDate(
+                        historyTask.created_at,
+                      )}
+                    </time>
+                  </div>
+                </button>
+              ),
+            )}
+          </div>
+        )}
+      </section>
     </main>
   );
 }
