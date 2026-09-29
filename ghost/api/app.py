@@ -11,7 +11,12 @@ from ghost.memory.database import (
     list_task_records,
     update_task_record,
 )
+from ghost.models.skill import Skill
 from ghost.skills.runner import run_skill
+from ghost.skills.storage import (
+    list_skills,
+    load_skill,
+)
 
 
 app = FastAPI(
@@ -23,7 +28,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=(
+        r"^https?://"
+        r"(localhost|127\.0\.0\.1)"
+        r"(:\d+)?$"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -135,6 +144,43 @@ def health():
         "service": "ghost-api",
         "version": "0.3.0",
     }
+
+
+# --------------------------------------------------
+# SKILLS
+# --------------------------------------------------
+
+@app.get(
+    "/api/skills",
+    response_model=List[Skill],
+)
+def get_skills():
+    """
+    Return every learned skill currently known by GHOST.
+    """
+
+    return list_skills()
+
+
+@app.get(
+    "/api/skills/{skill_name}",
+    response_model=Skill,
+)
+def get_skill(
+    skill_name: str,
+):
+    """
+    Return one learned skill by name.
+    """
+
+    try:
+        return load_skill(skill_name)
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Skill not found.",
+        )
 
 
 # --------------------------------------------------

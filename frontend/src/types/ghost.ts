@@ -25,3 +25,23 @@ export type CreateGhostTaskRequest = {
   query: string;
   provider: string;
 };
+
+export type SkillVariable = {
+  name: string;
+  example_value: string;
+  description: string | null;
+};
+
+export type SkillStep = {
+  action_type: string;
+  target: string | null;
+  value: string | null;
+  url: string | null;
+};
+
+export type GhostSkill = {
+  name: string;
+  description: string;
+  variables: SkillVariable[];
+  steps: SkillStep[];
+};

@@ -1,9 +1,11 @@
 import type {
   CreateGhostTaskRequest,
+  GhostSkill,
   GhostTask,
 } from "../types/ghost";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL =
+  "http://127.0.0.1:8000";
 
 
 export async function checkGhostHealth() {
@@ -28,9 +30,11 @@ export async function createGhostTask(
     `${API_BASE_URL}/api/tasks`,
     {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json",
       },
+
       body: JSON.stringify(payload),
     },
   );
@@ -45,7 +49,9 @@ export async function createGhostTask(
 }
 
 
-export async function getGhostTasks(): Promise<GhostTask[]> {
+export async function getGhostTasks(): Promise<
+  GhostTask[]
+> {
   const response = await fetch(
     `${API_BASE_URL}/api/tasks`,
   );
@@ -53,6 +59,42 @@ export async function getGhostTasks(): Promise<GhostTask[]> {
   if (!response.ok) {
     throw new Error(
       `Could not load task history: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
+
+export async function getGhostSkills(): Promise<
+  GhostSkill[]
+> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/skills`,
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Could not load GHOST skills: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
+
+export async function getGhostSkill(
+  skillName: string,
+): Promise<GhostSkill> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/skills/${encodeURIComponent(
+      skillName,
+    )}`,
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Could not load skill: ${response.status}`,
     );
   }
 

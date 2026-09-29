@@ -12,10 +12,12 @@ import "./App.css";
 import {
   checkGhostHealth,
   createGhostTask,
+  getGhostSkills,
   getGhostTasks,
 } from "./services/ghostApi";
 
 import type {
+  GhostSkill,
   GhostTask,
 } from "./types/ghost";
 
@@ -48,6 +50,18 @@ function App() {
   ] = useState<GhostTask[]>([]);
 
   const [
+    skills,
+    setSkills,
+  ] = useState<GhostSkill[]>([]);
+
+  const [
+    selectedSkill,
+    setSelectedSkill,
+  ] = useState<GhostSkill | null>(
+    null,
+  );
+
+  const [
     isRunning,
     setIsRunning,
   ] = useState(false);
@@ -71,8 +85,35 @@ function App() {
 
       setTaskHistory(tasks);
     } catch {
-      // History failure should not make
-      // the entire GHOST interface unusable.
+      // History failure should not block
+      // the rest of the interface.
+    }
+  }
+
+
+  async function loadSkills() {
+    try {
+      const learnedSkills =
+        await getGhostSkills();
+
+      setSkills(learnedSkills);
+
+      if (
+        learnedSkills.length > 0
+        && !selectedSkill
+      ) {
+        const preferredSkill =
+          learnedSkills.find(
+            (skill) =>
+              skill.name === "research_topic",
+          )
+          ?? learnedSkills[0];
+
+        setSelectedSkill(preferredSkill);
+      }
+    } catch {
+      // Skill loading failure should not
+      // block task execution.
     }
   }
 
@@ -84,7 +125,10 @@ function App() {
 
         setBackendOnline(true);
 
-        await loadTaskHistory();
+        await Promise.all([
+          loadTaskHistory(),
+          loadSkills(),
+        ]);
       } catch {
         setBackendOnline(false);
       }
@@ -99,7 +143,8 @@ function App() {
   ) {
     event.preventDefault();
 
-    const cleanQuery = query.trim();
+    const cleanQuery =
+      query.trim();
 
     if (!cleanQuery) {
       return;
@@ -145,9 +190,13 @@ function App() {
       return "Unknown time";
     }
 
-    const parsedDate = new Date(
-      date.replace(" ", "T") + "Z",
-    );
+    const parsedDate =
+      new Date(
+        date.replace(
+          " ",
+          "T",
+        ) + "Z",
+      );
 
     return parsedDate.toLocaleString();
   }
@@ -300,7 +349,7 @@ function App() {
               </span>
 
               <p>
-                Executing learned research workflow...
+                Executing learned workflow...
               </p>
             </div>
 
@@ -320,7 +369,7 @@ function App() {
               </span>
 
               <p>
-                Generating AI result...
+                Generating verified result...
               </p>
             </div>
           </div>
@@ -434,6 +483,188 @@ function App() {
           )}
         </section>
       )}
+
+
+      <section className="panel skills-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">
+              LEARNED CAPABILITIES
+            </p>
+
+            <h3>
+              Skills
+            </h3>
+          </div>
+
+          <span className="history-count">
+            {skills.length} learned
+          </span>
+        </div>
+
+        {skills.length === 0 ? (
+          <div className="history-empty">
+            <p>
+              GHOST has not learned any skills yet.
+            </p>
+
+            <span>
+              Learned workflows will appear here.
+            </span>
+          </div>
+        ) : (
+          <div className="skills-layout">
+            <div className="skills-list">
+              {skills.map(
+                (skill) => (
+                  <button
+                    key={skill.name}
+                    type="button"
+                    className={
+                      selectedSkill?.name
+                      === skill.name
+                        ? "skill-card selected"
+                        : "skill-card"
+                    }
+                    onClick={() =>
+                      setSelectedSkill(
+                        skill,
+                      )
+                    }
+                  >
+                    <div className="skill-card-header">
+                      <span className="skill-status-dot" />
+
+                      <strong>
+                        {skill.name}
+                      </strong>
+                    </div>
+
+                    <p>
+                      {skill.description}
+                    </p>
+
+                    <div className="skill-card-meta">
+                      <span>
+                        {skill.variables.length}
+                        {" "}
+                        variable
+                        {skill.variables.length === 1
+                          ? ""
+                          : "s"}
+                      </span>
+
+                      <span>
+                        {skill.steps.length}
+                        {" "}
+                        steps
+                      </span>
+                    </div>
+                  </button>
+                ),
+              )}
+            </div>
+
+            {selectedSkill && (
+              <div className="skill-detail">
+                <div className="skill-detail-top">
+                  <div>
+                    <p className="eyebrow">
+                      SKILL MEMORY
+                    </p>
+
+                    <h4>
+                      {selectedSkill.name}
+                    </h4>
+                  </div>
+
+                  <span className="skill-ready">
+                    Ready
+                  </span>
+                </div>
+
+                <p className="skill-description">
+                  {selectedSkill.description}
+                </p>
+
+                <div className="skill-section">
+                  <p className="skill-section-title">
+                    Inputs
+                  </p>
+
+                  <div className="variable-list">
+                    {selectedSkill.variables.map(
+                      (variable) => (
+                        <div
+                          key={variable.name}
+                          className="variable-card"
+                        >
+                          <div className="variable-header">
+                            <strong>
+                              {variable.name}
+                            </strong>
+
+                            <code>
+                              {variable.example_value}
+                            </code>
+                          </div>
+
+                          {variable.description && (
+                            <p>
+                              {variable.description}
+                            </p>
+                          )}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+
+                <div className="skill-section">
+                  <p className="skill-section-title">
+                    Learned Steps
+                  </p>
+
+                  <div className="learned-steps">
+                    {selectedSkill.steps.map(
+                      (step, index) => (
+                        <div
+                          key={`${step.action_type}-${index}`}
+                          className="learned-step"
+                        >
+                          <span className="step-number">
+                            {String(
+                              index + 1,
+                            ).padStart(
+                              2,
+                              "0",
+                            )}
+                          </span>
+
+                          <div>
+                            <strong>
+                              {step.action_type}
+                            </strong>
+
+                            <p>
+                              {step.target
+                                ?? "No target"}
+
+                              {step.value
+                                ? ` · ${step.value}`
+                                : ""}
+                            </p>
+                          </div>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
 
       <section className="panel history-panel">
