@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +12,9 @@ from ghost.memory.database import (
     update_task_record,
 )
 from ghost.models.skill import Skill
-from ghost.skills.runner import run_skill
+from ghost.skills.executor import (
+    run_skill as run_ghost_skill,
+)
 from ghost.skills.storage import (
     list_skills,
     load_skill,
@@ -22,7 +24,7 @@ from ghost.skills.storage import (
 app = FastAPI(
     title="GHOST API",
     description="API for the GHOST AI workflow-learning agent.",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 
@@ -59,6 +61,14 @@ class ResearchTaskRequest(BaseModel):
     provider: str = "duckduckgo"
 
 
+class SkillRunRequest(BaseModel):
+    variables: Dict[str, Any] = Field(
+        default_factory=dict
+    )
+
+    provider: Optional[str] = None
+
+
 # --------------------------------------------------
 # RESPONSE MODELS
 # --------------------------------------------------
@@ -90,7 +100,9 @@ class TaskResponse(BaseModel):
 # HELPERS
 # --------------------------------------------------
 
-def clean_ghost_result(ghost_result):
+def clean_ghost_result(
+    ghost_result,
+):
     if not ghost_result:
         return {
             "success": False,
@@ -99,16 +111,26 @@ def clean_ghost_result(ghost_result):
             "result": None,
         }
 
-    raw_result = ghost_result.get("result")
+    raw_result = ghost_result.get(
+        "result"
+    )
 
     clean_result = None
 
     if raw_result:
         clean_result = {
-            "title": raw_result.get("title"),
-            "url": raw_result.get("url"),
-            "domain": raw_result.get("domain"),
-            "summary": raw_result.get("summary"),
+            "title": raw_result.get(
+                "title"
+            ),
+            "url": raw_result.get(
+                "url"
+            ),
+            "domain": raw_result.get(
+                "domain"
+            ),
+            "summary": raw_result.get(
+                "summary"
+            ),
             "key_terms": raw_result.get(
                 "key_terms",
                 [],
@@ -142,7 +164,7 @@ def health():
     return {
         "ok": True,
         "service": "ghost-api",
-        "version": "0.3.0",
+        "version": "0.4.0",
     }
 
 
@@ -155,10 +177,6 @@ def health():
     response_model=List[Skill],
 )
 def get_skills():
-    """
-    Return every learned skill currently known by GHOST.
-    """
-
     return list_skills()
 
 
@@ -169,12 +187,10 @@ def get_skills():
 def get_skill(
     skill_name: str,
 ):
-    """
-    Return one learned skill by name.
-    """
-
     try:
-        return load_skill(skill_name)
+        return load_skill(
+            skill_name
+        )
 
     except FileNotFoundError:
         raise HTTPException(
@@ -183,8 +199,46 @@ def get_skill(
         )
 
 
+@app.post(
+    "/api/skills/{skill_name}/run",
+)
+def run_skill_endpoint(
+    skill_name: str,
+    request: SkillRunRequest,
+):
+    """
+    Execute any GHOST skill through
+    the main executor/dispatcher.
+    """
+
+    try:
+        return run_ghost_skill(
+            skill_name,
+            request.variables,
+            provider_name=request.provider,
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Skill not found.",
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        )
+
+
 # --------------------------------------------------
-# CREATE + EXECUTE TASK
+# CREATE + EXECUTE RESEARCH TASK
 # --------------------------------------------------
 
 @app.post(
@@ -200,7 +254,7 @@ def create_task(
     )
 
     try:
-        ghost_result = run_skill(
+        ghost_result = run_ghost_skill(
             "research_topic",
             {
                 "query": request.query,
@@ -212,7 +266,9 @@ def create_task(
             ghost_result
         )
 
-        success = clean_result["success"]
+        success = clean_result[
+            "success"
+        ]
 
         update_task_record(
             task_id,
@@ -222,9 +278,15 @@ def create_task(
                 else "failed"
             ),
             success=success,
-            verified=clean_result["verified"],
-            skill=clean_result["skill"],
-            result=clean_result["result"],
+            verified=clean_result[
+                "verified"
+            ],
+            skill=clean_result[
+                "skill"
+            ],
+            result=clean_result[
+                "result"
+            ],
         )
 
     except Exception as error:
@@ -236,12 +298,16 @@ def create_task(
             error=str(error),
         )
 
-    task = get_task_record(task_id)
+    task = get_task_record(
+        task_id
+    )
 
     if task is None:
         raise HTTPException(
             status_code=500,
-            detail="Task could not be loaded.",
+            detail=(
+                "Task could not be loaded."
+            ),
         )
 
     return task
@@ -258,7 +324,9 @@ def create_task(
 def get_task(
     task_id: int,
 ):
-    task = get_task_record(task_id)
+    task = get_task_record(
+        task_id
+    )
 
     if task is None:
         raise HTTPException(

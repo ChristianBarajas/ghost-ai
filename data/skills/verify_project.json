@@ -1,0 +1,43 @@
+{
+    "name": "verify_project",
+    "description": "Inspect a software project, detect its technology stack, run safe verification checks, and report whether the project is healthy.",
+    "variables": [
+      {
+        "name": "project_path",
+        "example_value": "~/Desktop/ghost",
+        "description": "The local filesystem path of the software project to verify."
+      }
+    ],
+    "steps": [
+      {
+        "action_type": "inspect_project",
+        "target": "project_path",
+        "value": "{{project_path}}",
+        "url": null
+      },
+      {
+        "action_type": "detect_stack",
+        "target": "project",
+        "value": null,
+        "url": null
+      },
+      {
+        "action_type": "build_verification_plan",
+        "target": "project",
+        "value": null,
+        "url": null
+      },
+      {
+        "action_type": "run_checks",
+        "target": "verification_plan",
+        "value": null,
+        "url": null
+      },
+      {
+        "action_type": "verify",
+        "target": "project_health",
+        "value": null,
+        "url": null
+      }
+    ]
+  }
