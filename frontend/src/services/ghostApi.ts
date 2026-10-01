@@ -2,6 +2,7 @@ import type {
   CreateGhostTaskRequest,
   GhostSkill,
   GhostTask,
+  ProjectVerificationResponse,
 } from "../types/ghost";
 
 const API_BASE_URL =
@@ -30,11 +31,9 @@ export async function createGhostTask(
     `${API_BASE_URL}/api/tasks`,
     {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
       },
-
       body: JSON.stringify(payload),
     },
   );
@@ -83,18 +82,32 @@ export async function getGhostSkills(): Promise<
 }
 
 
-export async function getGhostSkill(
-  skillName: string,
-): Promise<GhostSkill> {
+export async function verifyGhostProject(
+  projectPath: string,
+): Promise<ProjectVerificationResponse> {
   const response = await fetch(
-    `${API_BASE_URL}/api/skills/${encodeURIComponent(
-      skillName,
-    )}`,
+    `${API_BASE_URL}/api/skills/verify_project/run`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        variables: {
+          project_path: projectPath,
+        },
+      }),
+    },
   );
 
   if (!response.ok) {
+    const body = await response.json().catch(
+      () => null,
+    );
+
     throw new Error(
-      `Could not load skill: ${response.status}`,
+      body?.detail
+        ?? `Project verification failed with status ${response.status}`,
     );
   }
 

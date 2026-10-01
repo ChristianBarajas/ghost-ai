@@ -90,7 +90,7 @@ class TaskResponse(BaseModel):
     success: Optional[bool] = None
     verified: Optional[bool] = None
     skill: Optional[str] = None
-    result: Optional[ResearchResult] = None
+    result: Optional[Any] = None
     error: Optional[str] = None
     created_at: Optional[str] = None
     completed_at: Optional[str] = None
@@ -100,7 +100,7 @@ class TaskResponse(BaseModel):
 # HELPERS
 # --------------------------------------------------
 
-def clean_ghost_result(
+def clean_research_result(
     ghost_result,
 ):
     if not ghost_result:
@@ -155,6 +155,81 @@ def clean_ghost_result(
     }
 
 
+def save_skill_execution(
+    skill_name: str,
+    display_query: str,
+    provider: str,
+    variables: Dict[str, Any],
+):
+    task_id = create_task_record(
+        display_query,
+        provider,
+    )
+
+    try:
+        ghost_result = run_ghost_skill(
+            skill_name,
+            variables,
+            provider_name=(
+                None
+                if provider == "project"
+                else provider
+            ),
+        )
+
+        success = bool(
+            ghost_result.get(
+                "success",
+                False,
+            )
+        )
+
+        verified = ghost_result.get(
+            "verified"
+        )
+
+        result = ghost_result.get(
+            "result"
+        )
+
+        update_task_record(
+            task_id,
+            status=(
+                "completed"
+                if success
+                else "failed"
+            ),
+            success=success,
+            verified=verified,
+            skill=skill_name,
+            result=result,
+        )
+
+    except Exception as error:
+        update_task_record(
+            task_id,
+            status="failed",
+            success=False,
+            verified=False,
+            skill=skill_name,
+            error=str(error),
+        )
+
+    task = get_task_record(
+        task_id
+    )
+
+    if task is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Task could not be loaded."
+            ),
+        )
+
+    return task
+
+
 # --------------------------------------------------
 # HEALTH
 # --------------------------------------------------
@@ -201,21 +276,19 @@ def get_skill(
 
 @app.post(
     "/api/skills/{skill_name}/run",
+    response_model=TaskResponse,
 )
 def run_skill_endpoint(
     skill_name: str,
     request: SkillRunRequest,
 ):
     """
-    Execute any GHOST skill through
-    the main executor/dispatcher.
+    Execute a GHOST skill and persist the run.
     """
 
     try:
-        return run_ghost_skill(
-            skill_name,
-            request.variables,
-            provider_name=request.provider,
+        load_skill(
+            skill_name
         )
 
     except FileNotFoundError:
@@ -224,17 +297,36 @@ def run_skill_endpoint(
             detail="Skill not found.",
         )
 
-    except ValueError as error:
-        raise HTTPException(
-            status_code=400,
-            detail=str(error),
+    if skill_name == "verify_project":
+        project_path = request.variables.get(
+            "project_path"
         )
 
-    except Exception as error:
-        raise HTTPException(
-            status_code=500,
-            detail=str(error),
+        if not project_path:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "verify_project requires "
+                    "'project_path'."
+                ),
+            )
+
+        return save_skill_execution(
+            skill_name="verify_project",
+            display_query=project_path,
+            provider="project",
+            variables={
+                "project_path": project_path,
+            },
         )
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Skill '{skill_name}' is not "
+            f"supported by this endpoint yet."
+        ),
+    )
 
 
 # --------------------------------------------------
@@ -248,66 +340,34 @@ def run_skill_endpoint(
 def create_task(
     request: ResearchTaskRequest,
 ):
-    task_id = create_task_record(
-        request.query,
-        request.provider,
+    task = save_skill_execution(
+        skill_name="research_topic",
+        display_query=request.query,
+        provider=request.provider,
+        variables={
+            "query": request.query,
+        },
     )
 
-    try:
-        ghost_result = run_ghost_skill(
-            "research_topic",
-            {
-                "query": request.query,
-            },
-            provider_name=request.provider,
-        )
-
-        clean_result = clean_ghost_result(
-            ghost_result
-        )
-
-        success = clean_result[
-            "success"
-        ]
-
-        update_task_record(
-            task_id,
-            status=(
-                "completed"
-                if success
-                else "failed"
-            ),
-            success=success,
-            verified=clean_result[
-                "verified"
-            ],
-            skill=clean_result[
-                "skill"
-            ],
-            result=clean_result[
-                "result"
-            ],
-        )
-
-    except Exception as error:
-        update_task_record(
-            task_id,
-            status="failed",
-            success=False,
-            verified=False,
-            error=str(error),
-        )
-
-    task = get_task_record(
-        task_id
-    )
-
-    if task is None:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Task could not be loaded."
-            ),
+    if (
+        task.get("result")
+        is not None
+    ):
+        task["result"] = (
+            clean_research_result({
+                "success": task.get(
+                    "success"
+                ),
+                "verified": task.get(
+                    "verified"
+                ),
+                "skill": task.get(
+                    "skill"
+                ),
+                "result": task.get(
+                    "result"
+                ),
+            })["result"]
         )
 
     return task

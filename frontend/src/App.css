@@ -1183,3 +1183,227 @@ button:disabled {
     margin-left: auto;
   }
 }
+/* --------------------------------------------------
+   TASK MODES
+-------------------------------------------------- */
+
+.mode-switcher {
+  display: flex;
+  gap: 8px;
+
+  margin-top: 42px;
+}
+
+.mode-button {
+  min-width: 0;
+
+  padding: 9px 14px;
+
+  border: 1px solid #272727;
+  border-radius: 999px;
+
+  color: #777;
+  background: #101010;
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mode-button.active {
+  border-color: #555;
+
+  color: #fff;
+  background: #1a1a1a;
+}
+
+.project-hint {
+  margin-top: 16px;
+
+  color: #666;
+
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.selected-skill-label {
+  color: #8df0a8;
+
+  font-family: monospace;
+  font-size: 13px;
+}
+
+
+/* --------------------------------------------------
+   PROJECT VERIFICATION
+-------------------------------------------------- */
+
+.project-result-panel {
+  margin-top: 22px;
+}
+
+.verification-stats {
+  display: grid;
+  grid-template-columns:
+    repeat(3, 1fr);
+
+  gap: 10px;
+
+  margin-top: 26px;
+}
+
+.verification-stats > div {
+  padding: 18px;
+
+  border: 1px solid #252525;
+  border-radius: 14px;
+
+  background: #0c0c0c;
+}
+
+.verification-stats strong {
+  display: block;
+
+  color: #fff;
+
+  font-size: 28px;
+}
+
+.verification-stats span {
+  display: block;
+
+  margin-top: 5px;
+
+  color: #666;
+
+  font-size: 11px;
+
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.detected-stack {
+  margin-top: 28px;
+}
+
+.project-checks {
+  margin-top: 28px;
+}
+
+.project-check {
+  display: grid;
+  grid-template-columns:
+    auto
+    minmax(0, 1fr)
+    auto;
+
+  align-items: center;
+
+  gap: 14px;
+
+  padding:
+    16px
+    0;
+
+  border-bottom:
+    1px
+    solid
+    #202020;
+}
+
+.project-check:last-child {
+  border-bottom: 0;
+}
+
+.check-icon {
+  display: grid;
+  place-items: center;
+
+  width: 28px;
+  height: 28px;
+
+  border-radius: 50%;
+
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.check-icon.passed {
+  color: #8df0a8;
+
+  background:
+    rgba(
+      60,
+      180,
+      92,
+      0.1
+    );
+}
+
+.check-icon.failed {
+  color: #ff8d8d;
+
+  background:
+    rgba(
+      200,
+      60,
+      60,
+      0.1
+    );
+}
+
+.project-check strong {
+  color: #ddd;
+
+  font-size: 14px;
+}
+
+.project-check p {
+  margin:
+    5px
+    0
+    0;
+
+  color: #666;
+
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.check-status {
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.check-status.passed {
+  color: #8df0a8;
+}
+
+.check-status.failed {
+  color: #ff8d8d;
+}
+
+
+@media (max-width: 700px) {
+  .mode-switcher {
+    width: 100%;
+  }
+
+  .mode-button {
+    width: auto;
+    flex: 1;
+  }
+
+  .verification-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .project-check {
+    grid-template-columns:
+      auto
+      minmax(0, 1fr);
+  }
+
+  .check-status {
+    grid-column: 2;
+  }
+}

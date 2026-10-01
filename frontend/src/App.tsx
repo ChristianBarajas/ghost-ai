@@ -14,20 +14,41 @@ import {
   createGhostTask,
   getGhostSkills,
   getGhostTasks,
+  verifyGhostProject,
 } from "./services/ghostApi";
 
 import type {
   GhostSkill,
   GhostTask,
+  ProjectVerificationResponse,
 } from "./types/ghost";
 
 
+type TaskMode =
+  | "research"
+  | "verify_project";
+
+
 function App() {
+  const [
+    mode,
+    setMode,
+  ] = useState<TaskMode>(
+    "research",
+  );
+
   const [
     query,
     setQuery,
   ] = useState(
     "What is retrieval augmented generation?",
+  );
+
+  const [
+    projectPath,
+    setProjectPath,
+  ] = useState(
+    "~/Desktop/ghost",
   );
 
   const [
@@ -41,6 +62,13 @@ function App() {
     task,
     setTask,
   ] = useState<GhostTask | null>(
+    null,
+  );
+
+  const [
+    projectResult,
+    setProjectResult,
+  ] = useState<ProjectVerificationResponse | null>(
     null,
   );
 
@@ -85,8 +113,7 @@ function App() {
 
       setTaskHistory(tasks);
     } catch {
-      // History failure should not block
-      // the rest of the interface.
+      // History should not block GHOST.
     }
   }
 
@@ -98,22 +125,16 @@ function App() {
 
       setSkills(learnedSkills);
 
-      if (
-        learnedSkills.length > 0
-        && !selectedSkill
-      ) {
-        const preferredSkill =
-          learnedSkills.find(
-            (skill) =>
-              skill.name === "research_topic",
-          )
-          ?? learnedSkills[0];
-
-        setSelectedSkill(preferredSkill);
-      }
+      setSelectedSkill(
+        learnedSkills.find(
+          (skill) =>
+            skill.name === "research_topic",
+        )
+        ?? learnedSkills[0]
+        ?? null,
+      );
     } catch {
-      // Skill loading failure should not
-      // block task execution.
+      // Skills should not block GHOST.
     }
   }
 
@@ -143,27 +164,48 @@ function App() {
   ) {
     event.preventDefault();
 
-    const cleanQuery =
-      query.trim();
-
-    if (!cleanQuery) {
-      return;
-    }
-
     setIsRunning(true);
     setTask(null);
+    setProjectResult(null);
     setError(null);
 
     try {
-      const result =
-        await createGhostTask({
-          query: cleanQuery,
-          provider,
-        });
+      if (mode === "research") {
+        const cleanQuery =
+          query.trim();
 
-      setTask(result);
+        if (!cleanQuery) {
+          return;
+        }
 
-      await loadTaskHistory();
+        const result =
+          await createGhostTask({
+            query: cleanQuery,
+            provider,
+          });
+
+        setTask(result);
+
+        await loadTaskHistory();
+      }
+
+      if (mode === "verify_project") {
+        const cleanPath =
+          projectPath.trim();
+
+        if (!cleanPath) {
+          return;
+        }
+
+        const result =
+          await verifyGhostProject(
+            cleanPath,
+          );
+
+        setProjectResult(result);
+
+        await loadTaskHistory();
+      }
     } catch (requestError) {
       if (
         requestError
@@ -205,6 +247,8 @@ function App() {
   function openHistoryTask(
     historyTask: GhostTask,
   ) {
+    setMode("research");
+    setProjectResult(null);
     setTask(historyTask);
 
     window.scrollTo({
@@ -259,69 +303,154 @@ function App() {
           </h2>
 
           <p>
-            GHOST uses learned workflows,
-            browser automation, source validation,
-            and AI reasoning to complete tasks.
+            GHOST uses reusable skills,
+            specialized execution engines,
+            automation, and verification to
+            complete tasks.
           </p>
+        </div>
+
+        <div className="mode-switcher">
+          <button
+            type="button"
+            className={
+              mode === "research"
+                ? "mode-button active"
+                : "mode-button"
+            }
+            onClick={() =>
+              setMode("research")
+            }
+          >
+            Research
+          </button>
+
+          <button
+            type="button"
+            className={
+              mode === "verify_project"
+                ? "mode-button active"
+                : "mode-button"
+            }
+            onClick={() =>
+              setMode(
+                "verify_project",
+              )
+            }
+          >
+            Verify Project
+          </button>
         </div>
 
         <form
           className="task-form"
           onSubmit={handleSubmit}
         >
-          <label htmlFor="ghost-query">
-            What should GHOST research?
-          </label>
-
-          <textarea
-            id="ghost-query"
-            value={query}
-            onChange={(event) =>
-              setQuery(
-                event.target.value,
-              )
-            }
-            placeholder="Ask GHOST to research something..."
-            rows={4}
-          />
-
-          <div className="form-footer">
-            <div className="provider-control">
-              <label htmlFor="provider">
-                Provider
+          {mode === "research" ? (
+            <>
+              <label htmlFor="ghost-query">
+                What should GHOST research?
               </label>
 
-              <select
-                id="provider"
-                value={provider}
+              <textarea
+                id="ghost-query"
+                value={query}
                 onChange={(event) =>
-                  setProvider(
+                  setQuery(
                     event.target.value,
                   )
                 }
-              >
-                <option value="duckduckgo">
-                  DuckDuckGo
-                </option>
+                placeholder="Ask GHOST to research something..."
+                rows={4}
+              />
 
-                <option value="bing">
-                  Bing
-                </option>
-              </select>
-            </div>
+              <div className="form-footer">
+                <div className="provider-control">
+                  <label htmlFor="provider">
+                    Provider
+                  </label>
 
-            <button
-              type="submit"
-              disabled={
-                isRunning
-                || !backendOnline
-              }
-            >
-              {isRunning
-                ? "GHOST is working..."
-                : "Run GHOST"}
-            </button>
-          </div>
+                  <select
+                    id="provider"
+                    value={provider}
+                    onChange={(event) =>
+                      setProvider(
+                        event.target.value,
+                      )
+                    }
+                  >
+                    <option value="duckduckgo">
+                      DuckDuckGo
+                    </option>
+
+                    <option value="bing">
+                      Bing
+                    </option>
+                  </select>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={
+                    isRunning
+                    || !backendOnline
+                  }
+                >
+                  {isRunning
+                    ? "GHOST is working..."
+                    : "Run Research"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <label htmlFor="project-path">
+                Which project should GHOST verify?
+              </label>
+
+              <textarea
+                id="project-path"
+                value={projectPath}
+                onChange={(event) =>
+                  setProjectPath(
+                    event.target.value,
+                  )
+                }
+                placeholder="~/Desktop/my-project"
+                rows={2}
+              />
+
+              <div className="project-hint">
+                GHOST will inspect the stack and
+                run only supported verification
+                checks.
+              </div>
+
+              <div className="form-footer project-footer">
+                <div className="provider-control">
+                  <label>
+                    Skill
+                  </label>
+
+                  <span className="selected-skill-label">
+                    verify_project
+                  </span>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={
+                    isRunning
+                    || !backendOnline
+                  }
+                >
+                  {isRunning
+                    ? "Verifying project..."
+                    : "Verify Project"}
+                </button>
+              </div>
+            </>
+          )}
         </form>
       </section>
 
@@ -343,35 +472,59 @@ function App() {
           </div>
 
           <div className="execution-list">
-            <div className="execution-step active">
-              <span>
-                01
-              </span>
+            {mode === "research" ? (
+              <>
+                <div className="execution-step active">
+                  <span>01</span>
 
-              <p>
-                Executing learned workflow...
-              </p>
-            </div>
+                  <p>
+                    Executing research workflow...
+                  </p>
+                </div>
 
-            <div className="execution-step">
-              <span>
-                02
-              </span>
+                <div className="execution-step">
+                  <span>02</span>
 
-              <p>
-                Evaluating sources...
-              </p>
-            </div>
+                  <p>
+                    Evaluating sources...
+                  </p>
+                </div>
 
-            <div className="execution-step">
-              <span>
-                03
-              </span>
+                <div className="execution-step">
+                  <span>03</span>
 
-              <p>
-                Generating verified result...
-              </p>
-            </div>
+                  <p>
+                    Verifying result...
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="execution-step active">
+                  <span>01</span>
+
+                  <p>
+                    Inspecting project stack...
+                  </p>
+                </div>
+
+                <div className="execution-step">
+                  <span>02</span>
+
+                  <p>
+                    Building verification plan...
+                  </p>
+                </div>
+
+                <div className="execution-step">
+                  <span>03</span>
+
+                  <p>
+                    Running safe checks...
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </section>
       )}
@@ -399,7 +552,7 @@ function App() {
           <div className="result-header">
             <div>
               <p className="eyebrow">
-                RESULT
+                RESEARCH RESULT
               </p>
 
               <h3>
@@ -473,14 +626,173 @@ function App() {
               )}
             </>
           )}
+        </section>
+      )}
 
-          {task.error && (
-            <div className="summary-card">
-              <p className="summary">
-                {task.error}
+
+      {projectResult && projectResult.result && (
+        <section className="panel project-result-panel">
+          <div className="result-header">
+            <div>
+              <p className="eyebrow">
+                PROJECT VERIFICATION
               </p>
+
+              <h3>
+                {
+                  projectResult.result
+                    .project.project_path
+                }
+              </h3>
             </div>
-          )}
+
+            <div
+              className={
+                projectResult.verified
+                  ? "result-badge success"
+                  : "result-badge failure"
+              }
+            >
+              {projectResult.verified
+                ? "Verified"
+                : "Failed"}
+            </div>
+          </div>
+
+          <div className="verification-stats">
+            <div>
+              <strong>
+                {
+                  projectResult.result
+                    .summary.total_checks
+                }
+              </strong>
+
+              <span>
+                Checks
+              </span>
+            </div>
+
+            <div>
+              <strong>
+                {
+                  projectResult.result
+                    .summary.passed
+                }
+              </strong>
+
+              <span>
+                Passed
+              </span>
+            </div>
+
+            <div>
+              <strong>
+                {
+                  projectResult.result
+                    .summary.failed
+                }
+              </strong>
+
+              <span>
+                Failed
+              </span>
+            </div>
+          </div>
+
+          <div className="detected-stack">
+            <p className="skill-section-title">
+              Detected Stack
+            </p>
+
+            <div className="terms">
+              {
+                projectResult.result
+                  .project.project_types.map(
+                    (type) => (
+                      <span
+                        key={type}
+                        className="term"
+                      >
+                        {type}
+                      </span>
+                    ),
+                  )
+              }
+            </div>
+          </div>
+
+          <div className="project-checks">
+            <p className="skill-section-title">
+              Verification Checks
+            </p>
+
+            {
+              projectResult.result
+                .checks.map(
+                  (check) => (
+                    <div
+                      key={`${check.component}-${check.name}`}
+                      className="project-check"
+                    >
+                      <span
+                        className={
+                          check.success
+                            ? "check-icon passed"
+                            : "check-icon failed"
+                        }
+                      >
+                        {check.success
+                          ? "✓"
+                          : "×"}
+                      </span>
+
+                      <div>
+                        <strong>
+                          {check.name}
+                        </strong>
+
+                        <p>
+                          {check.component}
+                          {" · "}
+                          {check.command.join(" ")}
+                        </p>
+                      </div>
+
+                      <span
+                        className={
+                          check.success
+                            ? "check-status passed"
+                            : "check-status failed"
+                        }
+                      >
+                        {check.success
+                          ? "PASS"
+                          : "FAIL"}
+                      </span>
+                    </div>
+                  ),
+                )
+            }
+          </div>
+        </section>
+      )}
+
+
+      {projectResult && !projectResult.result && (
+        <section className="panel error-panel">
+          <p className="eyebrow">
+            PROJECT VERIFICATION
+          </p>
+
+          <h3>
+            No verification result was returned.
+          </h3>
+
+          <p>
+            {projectResult.error
+              ?? "The verification run did not produce a result."}
+          </p>
         </section>
       )}
 
@@ -489,7 +801,7 @@ function App() {
         <div className="panel-heading">
           <div>
             <p className="eyebrow">
-              LEARNED CAPABILITIES
+              CAPABILITIES
             </p>
 
             <h3>
@@ -498,19 +810,15 @@ function App() {
           </div>
 
           <span className="history-count">
-            {skills.length} learned
+            {skills.length} available
           </span>
         </div>
 
         {skills.length === 0 ? (
           <div className="history-empty">
             <p>
-              GHOST has not learned any skills yet.
+              GHOST has no skills available.
             </p>
-
-            <span>
-              Learned workflows will appear here.
-            </span>
           </div>
         ) : (
           <div className="skills-layout">
@@ -548,10 +856,7 @@ function App() {
                       <span>
                         {skill.variables.length}
                         {" "}
-                        variable
-                        {skill.variables.length === 1
-                          ? ""
-                          : "s"}
+                        variables
                       </span>
 
                       <span>
@@ -570,7 +875,7 @@ function App() {
                 <div className="skill-detail-top">
                   <div>
                     <p className="eyebrow">
-                      SKILL MEMORY
+                      SKILL DEFINITION
                     </p>
 
                     <h4>
@@ -622,7 +927,7 @@ function App() {
 
                 <div className="skill-section">
                   <p className="skill-section-title">
-                    Learned Steps
+                    Steps
                   </p>
 
                   <div className="learned-steps">
@@ -689,10 +994,6 @@ function App() {
             <p>
               GHOST has no saved runs yet.
             </p>
-
-            <span>
-              Completed tasks will appear here.
-            </span>
           </div>
         ) : (
           <div className="history-list">
