@@ -11,44 +11,50 @@ import "./App.css";
 
 import {
   checkGhostHealth,
-  createGhostTask,
   getGhostSkills,
   getGhostTasks,
-  verifyGhostProject,
+  runGhostAgent,
 } from "./services/ghostApi";
 
 import type {
+  AgentRoute,
   GhostSkill,
   GhostTask,
-  ProjectVerificationResponse,
+  GhostTaskResult,
+  ProjectVerification,
+  ResearchResult,
 } from "./types/ghost";
 
 
-type TaskMode =
-  | "research"
-  | "verify_project";
+function isResearchResult(
+  result: GhostTaskResult | null,
+): result is ResearchResult {
+  return (
+    result !== null
+    && "key_terms" in result
+    && "summary" in result
+  );
+}
+
+
+function isProjectVerification(
+  result: GhostTaskResult | null,
+): result is ProjectVerification {
+  return (
+    result !== null
+    && "project" in result
+    && "checks" in result
+    && "summary" in result
+  );
+}
 
 
 function App() {
   const [
-    mode,
-    setMode,
-  ] = useState<TaskMode>(
-    "research",
-  );
-
-  const [
-    query,
-    setQuery,
+    request,
+    setRequest,
   ] = useState(
-    "What is retrieval augmented generation?",
-  );
-
-  const [
-    projectPath,
-    setProjectPath,
-  ] = useState(
-    "~/Desktop/ghost",
+    "What is reinforcement learning?",
   );
 
   const [
@@ -66,9 +72,9 @@ function App() {
   );
 
   const [
-    projectResult,
-    setProjectResult,
-  ] = useState<ProjectVerificationResponse | null>(
+    route,
+    setRoute,
+  ] = useState<AgentRoute | null>(
     null,
   );
 
@@ -109,7 +115,8 @@ function App() {
 
   async function loadTaskHistory() {
     try {
-      const tasks = await getGhostTasks();
+      const tasks =
+        await getGhostTasks();
 
       setTaskHistory(tasks);
     } catch {
@@ -123,7 +130,9 @@ function App() {
       const learnedSkills =
         await getGhostSkills();
 
-      setSkills(learnedSkills);
+      setSkills(
+        learnedSkills,
+      );
 
       setSelectedSkill(
         learnedSkills.find(
@@ -164,47 +173,48 @@ function App() {
   ) {
     event.preventDefault();
 
+    const cleanRequest =
+      request.trim();
+
+    if (!cleanRequest) {
+      return;
+    }
+
     setIsRunning(true);
     setTask(null);
-    setProjectResult(null);
+    setRoute(null);
     setError(null);
 
     try {
-      if (mode === "research") {
-        const cleanQuery =
-          query.trim();
+      const response =
+        await runGhostAgent({
+          request: cleanRequest,
+          provider,
+        });
 
-        if (!cleanQuery) {
-          return;
-        }
+      setRoute(
+        response.route,
+      );
 
-        const result =
-          await createGhostTask({
-            query: cleanQuery,
-            provider,
-          });
+      setTask(
+        response.task,
+      );
 
-        setTask(result);
-
+      if (response.executed) {
         await loadTaskHistory();
       }
 
-      if (mode === "verify_project") {
-        const cleanPath =
-          projectPath.trim();
+      const selected =
+        skills.find(
+          (skill) =>
+            skill.name
+            === response.route.skill,
+        );
 
-        if (!cleanPath) {
-          return;
-        }
-
-        const result =
-          await verifyGhostProject(
-            cleanPath,
-          );
-
-        setProjectResult(result);
-
-        await loadTaskHistory();
+      if (selected) {
+        setSelectedSkill(
+          selected,
+        );
       }
     } catch (requestError) {
       if (
@@ -247,15 +257,35 @@ function App() {
   function openHistoryTask(
     historyTask: GhostTask,
   ) {
-    setMode("research");
-    setProjectResult(null);
-    setTask(historyTask);
+    setTask(
+      historyTask,
+    );
+
+    setRoute(null);
+    setError(null);
 
     window.scrollTo({
       top: 0,
       behavior: "smooth",
     });
   }
+
+
+  const researchResult =
+    task
+    && isResearchResult(
+      task.result,
+    )
+      ? task.result
+      : null;
+
+  const projectResult =
+    task
+    && isProjectVerification(
+      task.result,
+    )
+      ? task.result
+      : null;
 
 
   return (
@@ -299,158 +329,75 @@ function App() {
           </p>
 
           <h2>
-            Give GHOST a task.
+            What do you want GHOST to do?
           </h2>
 
           <p>
-            GHOST uses reusable skills,
-            specialized execution engines,
-            automation, and verification to
-            complete tasks.
+            Describe the task naturally.
+            GHOST will choose the appropriate
+            skill, extract its inputs, execute
+            the workflow, verify the result,
+            and remember the run.
           </p>
-        </div>
-
-        <div className="mode-switcher">
-          <button
-            type="button"
-            className={
-              mode === "research"
-                ? "mode-button active"
-                : "mode-button"
-            }
-            onClick={() =>
-              setMode("research")
-            }
-          >
-            Research
-          </button>
-
-          <button
-            type="button"
-            className={
-              mode === "verify_project"
-                ? "mode-button active"
-                : "mode-button"
-            }
-            onClick={() =>
-              setMode(
-                "verify_project",
-              )
-            }
-          >
-            Verify Project
-          </button>
         </div>
 
         <form
           className="task-form"
           onSubmit={handleSubmit}
         >
-          {mode === "research" ? (
-            <>
-              <label htmlFor="ghost-query">
-                What should GHOST research?
+          <label htmlFor="ghost-request">
+            Give GHOST a task
+          </label>
+
+          <textarea
+            id="ghost-request"
+            value={request}
+            onChange={(event) =>
+              setRequest(
+                event.target.value,
+              )
+            }
+            placeholder="Try: Check if ~/Desktop/ghost is healthy"
+            rows={4}
+          />
+
+          <div className="form-footer">
+            <div className="provider-control">
+              <label htmlFor="provider">
+                Web provider
               </label>
 
-              <textarea
-                id="ghost-query"
-                value={query}
+              <select
+                id="provider"
+                value={provider}
                 onChange={(event) =>
-                  setQuery(
+                  setProvider(
                     event.target.value,
                   )
                 }
-                placeholder="Ask GHOST to research something..."
-                rows={4}
-              />
+              >
+                <option value="duckduckgo">
+                  DuckDuckGo
+                </option>
 
-              <div className="form-footer">
-                <div className="provider-control">
-                  <label htmlFor="provider">
-                    Provider
-                  </label>
+                <option value="bing">
+                  Bing
+                </option>
+              </select>
+            </div>
 
-                  <select
-                    id="provider"
-                    value={provider}
-                    onChange={(event) =>
-                      setProvider(
-                        event.target.value,
-                      )
-                    }
-                  >
-                    <option value="duckduckgo">
-                      DuckDuckGo
-                    </option>
-
-                    <option value="bing">
-                      Bing
-                    </option>
-                  </select>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={
-                    isRunning
-                    || !backendOnline
-                  }
-                >
-                  {isRunning
-                    ? "GHOST is working..."
-                    : "Run Research"}
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <label htmlFor="project-path">
-                Which project should GHOST verify?
-              </label>
-
-              <textarea
-                id="project-path"
-                value={projectPath}
-                onChange={(event) =>
-                  setProjectPath(
-                    event.target.value,
-                  )
-                }
-                placeholder="~/Desktop/my-project"
-                rows={2}
-              />
-
-              <div className="project-hint">
-                GHOST will inspect the stack and
-                run only supported verification
-                checks.
-              </div>
-
-              <div className="form-footer project-footer">
-                <div className="provider-control">
-                  <label>
-                    Skill
-                  </label>
-
-                  <span className="selected-skill-label">
-                    verify_project
-                  </span>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={
-                    isRunning
-                    || !backendOnline
-                  }
-                >
-                  {isRunning
-                    ? "Verifying project..."
-                    : "Verify Project"}
-                </button>
-              </div>
-            </>
-          )}
+            <button
+              type="submit"
+              disabled={
+                isRunning
+                || !backendOnline
+              }
+            >
+              {isRunning
+                ? "GHOST is thinking..."
+                : "Run GHOST"}
+            </button>
+          </div>
         </form>
       </section>
 
@@ -460,11 +407,11 @@ function App() {
           <div className="panel-heading">
             <div>
               <p className="eyebrow">
-                EXECUTION
+                AGENT EXECUTION
               </p>
 
               <h3>
-                GHOST is running
+                GHOST is working
               </h3>
             </div>
 
@@ -472,59 +419,35 @@ function App() {
           </div>
 
           <div className="execution-list">
-            {mode === "research" ? (
-              <>
-                <div className="execution-step active">
-                  <span>01</span>
+            <div className="execution-step active">
+              <span>
+                01
+              </span>
 
-                  <p>
-                    Executing research workflow...
-                  </p>
-                </div>
+              <p>
+                Understanding your request...
+              </p>
+            </div>
 
-                <div className="execution-step">
-                  <span>02</span>
+            <div className="execution-step">
+              <span>
+                02
+              </span>
 
-                  <p>
-                    Evaluating sources...
-                  </p>
-                </div>
+              <p>
+                Selecting the best skill...
+              </p>
+            </div>
 
-                <div className="execution-step">
-                  <span>03</span>
+            <div className="execution-step">
+              <span>
+                03
+              </span>
 
-                  <p>
-                    Verifying result...
-                  </p>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="execution-step active">
-                  <span>01</span>
-
-                  <p>
-                    Inspecting project stack...
-                  </p>
-                </div>
-
-                <div className="execution-step">
-                  <span>02</span>
-
-                  <p>
-                    Building verification plan...
-                  </p>
-                </div>
-
-                <div className="execution-step">
-                  <span>03</span>
-
-                  <p>
-                    Running safe checks...
-                  </p>
-                </div>
-              </>
-            )}
+              <p>
+                Executing and verifying...
+              </p>
+            </div>
           </div>
         </section>
       )}
@@ -547,7 +470,74 @@ function App() {
       )}
 
 
-      {task && (
+      {route && (
+        <section className="panel result-panel">
+          <div className="result-header">
+            <div>
+              <p className="eyebrow">
+                AI ROUTING
+              </p>
+
+              <h3>
+                {route.skill}
+              </h3>
+            </div>
+
+            <div className="result-badge success">
+              {Math.round(
+                route.confidence * 100,
+              )}
+              % confidence
+            </div>
+          </div>
+
+          <div className="result-meta">
+            <span>
+              Skill:{" "}
+              {route.skill}
+            </span>
+
+            <span>
+              Inputs:{" "}
+              {
+                Object.keys(
+                  route.variables,
+                ).length
+              }
+            </span>
+          </div>
+
+          <div className="summary-card">
+            <p className="summary">
+              {route.reason}
+            </p>
+          </div>
+
+          {route.missing_variables.length
+            > 0 && (
+            <div className="error-panel">
+              <p className="eyebrow">
+                INPUT REQUIRED
+              </p>
+
+              <h3>
+                GHOST understands the task,
+                but needs more information.
+              </h3>
+
+              <p>
+                Missing:{" "}
+                {route.missing_variables.join(
+                  ", ",
+                )}
+              </p>
+            </div>
+          )}
+        </section>
+      )}
+
+
+      {task && researchResult && (
         <section className="panel result-panel">
           <div className="result-header">
             <div>
@@ -556,7 +546,7 @@ function App() {
               </p>
 
               <h3>
-                {task.result?.title
+                {researchResult.title
                   ?? task.query}
               </h3>
             </div>
@@ -591,46 +581,42 @@ function App() {
             </span>
           </div>
 
-          {task.result && (
-            <>
-              <div className="summary-card">
-                <p className="summary">
-                  {task.result.summary}
-                </p>
-              </div>
+          <div className="summary-card">
+            <p className="summary">
+              {researchResult.summary}
+            </p>
+          </div>
 
-              <div className="terms">
-                {task.result.key_terms.map(
-                  (term) => (
-                    <span
-                      key={term}
-                      className="term"
-                    >
-                      {term}
-                    </span>
-                  ),
-                )}
-              </div>
-
-              {task.result.url && (
-                <a
-                  className="source-link"
-                  href={task.result.url}
-                  target="_blank"
-                  rel="noreferrer"
+          <div className="terms">
+            {researchResult.key_terms.map(
+              (term) => (
+                <span
+                  key={term}
+                  className="term"
                 >
-                  View source
-                  {" → "}
-                  {task.result.domain}
-                </a>
-              )}
-            </>
+                  {term}
+                </span>
+              ),
+            )}
+          </div>
+
+          {researchResult.url && (
+            <a
+              className="source-link"
+              href={researchResult.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View source
+              {" → "}
+              {researchResult.domain}
+            </a>
           )}
         </section>
       )}
 
 
-      {projectResult && projectResult.result && (
+      {task && projectResult && (
         <section className="panel project-result-panel">
           <div className="result-header">
             <div>
@@ -640,7 +626,7 @@ function App() {
 
               <h3>
                 {
-                  projectResult.result
+                  projectResult
                     .project.project_path
                 }
               </h3>
@@ -648,22 +634,39 @@ function App() {
 
             <div
               className={
-                projectResult.verified
+                task.verified
                   ? "result-badge success"
                   : "result-badge failure"
               }
             >
-              {projectResult.verified
+              {task.verified
                 ? "Verified"
                 : "Failed"}
             </div>
+          </div>
+
+          <div className="result-meta">
+            <span>
+              Skill:{" "}
+              {task.skill ?? "Unknown"}
+            </span>
+
+            <span>
+              Provider:{" "}
+              {task.provider}
+            </span>
+
+            <span>
+              Task:{" "}
+              #{task.task_id}
+            </span>
           </div>
 
           <div className="verification-stats">
             <div>
               <strong>
                 {
-                  projectResult.result
+                  projectResult
                     .summary.total_checks
                 }
               </strong>
@@ -676,7 +679,7 @@ function App() {
             <div>
               <strong>
                 {
-                  projectResult.result
+                  projectResult
                     .summary.passed
                 }
               </strong>
@@ -689,7 +692,7 @@ function App() {
             <div>
               <strong>
                 {
-                  projectResult.result
+                  projectResult
                     .summary.failed
                 }
               </strong>
@@ -707,7 +710,7 @@ function App() {
 
             <div className="terms">
               {
-                projectResult.result
+                projectResult
                   .project.project_types.map(
                     (type) => (
                       <span
@@ -728,70 +731,71 @@ function App() {
             </p>
 
             {
-              projectResult.result
-                .checks.map(
-                  (check) => (
-                    <div
-                      key={`${check.component}-${check.name}`}
-                      className="project-check"
+              projectResult.checks.map(
+                (check) => (
+                  <div
+                    key={`${check.component}-${check.name}`}
+                    className="project-check"
+                  >
+                    <span
+                      className={
+                        check.success
+                          ? "check-icon passed"
+                          : "check-icon failed"
+                      }
                     >
-                      <span
-                        className={
-                          check.success
-                            ? "check-icon passed"
-                            : "check-icon failed"
-                        }
-                      >
-                        {check.success
-                          ? "✓"
-                          : "×"}
-                      </span>
+                      {check.success
+                        ? "✓"
+                        : "×"}
+                    </span>
 
-                      <div>
-                        <strong>
-                          {check.name}
-                        </strong>
+                    <div>
+                      <strong>
+                        {check.name}
+                      </strong>
 
-                        <p>
-                          {check.component}
-                          {" · "}
-                          {check.command.join(" ")}
-                        </p>
-                      </div>
-
-                      <span
-                        className={
-                          check.success
-                            ? "check-status passed"
-                            : "check-status failed"
-                        }
-                      >
-                        {check.success
-                          ? "PASS"
-                          : "FAIL"}
-                      </span>
+                      <p>
+                        {check.component}
+                        {" · "}
+                        {check.command.join(
+                          " ",
+                        )}
+                      </p>
                     </div>
-                  ),
-                )
+
+                    <span
+                      className={
+                        check.success
+                          ? "check-status passed"
+                          : "check-status failed"
+                      }
+                    >
+                      {check.success
+                        ? "PASS"
+                        : "FAIL"}
+                    </span>
+                  </div>
+                ),
+              )
             }
           </div>
         </section>
       )}
 
 
-      {projectResult && !projectResult.result && (
+      {task && !task.result && (
         <section className="panel error-panel">
           <p className="eyebrow">
-            PROJECT VERIFICATION
+            EXECUTION RESULT
           </p>
 
           <h3>
-            No verification result was returned.
+            GHOST did not return a result.
           </h3>
 
           <p>
-            {projectResult.error
-              ?? "The verification run did not produce a result."}
+            {task.error
+              ?? "The selected skill completed without a usable result."}
           </p>
         </section>
       )}

@@ -1,4 +1,6 @@
 import type {
+  AgentRunRequest,
+  AgentRunResponse,
   CreateGhostTaskRequest,
   GhostSkill,
   GhostTask,
@@ -17,6 +19,35 @@ export async function checkGhostHealth() {
   if (!response.ok) {
     throw new Error(
       "GHOST backend is unavailable.",
+    );
+  }
+
+  return response.json();
+}
+
+
+export async function runGhostAgent(
+  payload: AgentRunRequest,
+): Promise<AgentRunResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/agent/run`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    const body = await response
+      .json()
+      .catch(() => null);
+
+    throw new Error(
+      body?.detail
+        ?? `GHOST agent failed with status ${response.status}`,
     );
   }
 
@@ -101,9 +132,9 @@ export async function verifyGhostProject(
   );
 
   if (!response.ok) {
-    const body = await response.json().catch(
-      () => null,
-    );
+    const body = await response
+      .json()
+      .catch(() => null);
 
     throw new Error(
       body?.detail
