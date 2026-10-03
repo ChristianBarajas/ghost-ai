@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from ghost.ai.router import route_request
 from ghost.memory.database import (
     create_task_record,
     get_task_record,
@@ -24,7 +25,7 @@ from ghost.skills.storage import (
 app = FastAPI(
     title="GHOST API",
     description="API for the GHOST AI workflow-learning agent.",
-    version="0.4.0",
+    version="0.5.0",
 )
 
 
@@ -69,6 +70,15 @@ class SkillRunRequest(BaseModel):
     provider: Optional[str] = None
 
 
+class AgentRunRequest(BaseModel):
+    request: str = Field(
+        min_length=1,
+        max_length=1000,
+    )
+
+    provider: str = "duckduckgo"
+
+
 # --------------------------------------------------
 # RESPONSE MODELS
 # --------------------------------------------------
@@ -94,6 +104,21 @@ class TaskResponse(BaseModel):
     error: Optional[str] = None
     created_at: Optional[str] = None
     completed_at: Optional[str] = None
+
+
+class RouteResponse(BaseModel):
+    skill: str
+    confidence: float
+    variables: Dict[str, Any]
+    missing_variables: List[str]
+    reason: str
+
+
+class AgentRunResponse(BaseModel):
+    routed: bool
+    executed: bool
+    route: RouteResponse
+    task: Optional[TaskResponse] = None
 
 
 # --------------------------------------------------
@@ -153,6 +178,33 @@ def clean_research_result(
         ),
         "result": clean_result,
     }
+
+
+def clean_saved_research_task(
+    task,
+):
+    if (
+        task.get("result")
+        is not None
+    ):
+        task["result"] = (
+            clean_research_result({
+                "success": task.get(
+                    "success"
+                ),
+                "verified": task.get(
+                    "verified"
+                ),
+                "skill": task.get(
+                    "skill"
+                ),
+                "result": task.get(
+                    "result"
+                ),
+            })["result"]
+        )
+
+    return task
 
 
 def save_skill_execution(
@@ -230,6 +282,35 @@ def save_skill_execution(
     return task
 
 
+def provider_for_skill(
+    skill_name: str,
+    requested_provider: str,
+):
+    if skill_name == "verify_project":
+        return "project"
+
+    return requested_provider
+
+
+def display_query_for_skill(
+    skill_name: str,
+    variables: Dict[str, Any],
+    original_request: str,
+):
+    if skill_name == "verify_project":
+        return variables.get(
+            "project_path",
+            original_request,
+        )
+
+    if "query" in variables:
+        return str(
+            variables["query"]
+        )
+
+    return original_request
+
+
 # --------------------------------------------------
 # HEALTH
 # --------------------------------------------------
@@ -239,8 +320,97 @@ def health():
     return {
         "ok": True,
         "service": "ghost-api",
-        "version": "0.4.0",
+        "version": "0.5.0",
     }
+
+
+# --------------------------------------------------
+# AGENT
+# --------------------------------------------------
+
+@app.post(
+    "/api/agent/run",
+    response_model=AgentRunResponse,
+)
+def run_agent(
+    request: AgentRunRequest,
+):
+    """
+    Route a natural-language request to the
+    appropriate GHOST skill and execute it.
+    """
+
+    try:
+        decision = route_request(
+            request.request
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"GHOST could not route "
+                f"the request: {error}"
+            ),
+        )
+
+    route = RouteResponse(
+        skill=decision.skill,
+        confidence=decision.confidence,
+        variables=decision.variables,
+        missing_variables=(
+            decision.missing_variables
+        ),
+        reason=decision.reason,
+    )
+
+    # GHOST understands the request,
+    # but cannot safely execute yet.
+    if decision.missing_variables:
+        return AgentRunResponse(
+            routed=True,
+            executed=False,
+            route=route,
+            task=None,
+        )
+
+    provider = provider_for_skill(
+        decision.skill,
+        request.provider,
+    )
+
+    display_query = (
+        display_query_for_skill(
+            decision.skill,
+            decision.variables,
+            request.request,
+        )
+    )
+
+    task = save_skill_execution(
+        skill_name=decision.skill,
+        display_query=display_query,
+        provider=provider,
+        variables=decision.variables,
+    )
+
+    if (
+        decision.skill
+        in {
+            "research_topic",
+            "research_topic_via_web_search",
+        }
+    ):
+        task = clean_saved_research_task(
+            task
+        )
+
+    return AgentRunResponse(
+        routed=True,
+        executed=True,
+        route=route,
+        task=task,
+    )
 
 
 # --------------------------------------------------
@@ -283,7 +453,8 @@ def run_skill_endpoint(
     request: SkillRunRequest,
 ):
     """
-    Execute a GHOST skill and persist the run.
+    Execute a GHOST skill directly and
+    persist the run.
     """
 
     try:
@@ -298,8 +469,10 @@ def run_skill_endpoint(
         )
 
     if skill_name == "verify_project":
-        project_path = request.variables.get(
-            "project_path"
+        project_path = (
+            request.variables.get(
+                "project_path"
+            )
         )
 
         if not project_path:
@@ -349,28 +522,9 @@ def create_task(
         },
     )
 
-    if (
-        task.get("result")
-        is not None
-    ):
-        task["result"] = (
-            clean_research_result({
-                "success": task.get(
-                    "success"
-                ),
-                "verified": task.get(
-                    "verified"
-                ),
-                "skill": task.get(
-                    "skill"
-                ),
-                "result": task.get(
-                    "result"
-                ),
-            })["result"]
-        )
-
-    return task
+    return clean_saved_research_task(
+        task
+    )
 
 
 # --------------------------------------------------
