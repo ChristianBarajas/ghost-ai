@@ -356,3 +356,219 @@ Determine the reusable workflow shared by them.
             )
 
         return result
+
+    # --------------------------------------------------
+    # SKILL ROUTING
+    # --------------------------------------------------
+
+    def route_request(
+        self,
+        user_request,
+        skills,
+    ):
+        instructions = """
+You are the routing brain inside an AI software
+agent named GHOST.
+
+GHOST has a collection of reusable skills.
+
+Your job is to understand the user's request and
+choose the single best existing skill.
+
+You MUST choose only from the skills supplied to
+you.
+
+Return ONLY valid JSON:
+
+{
+  "skill": "skill_name",
+  "confidence": 0.0,
+  "variables": {},
+  "missing_variables": [],
+  "reason": "Short explanation of why this skill fits."
+}
+
+--------------------------------------------------
+ROUTING RULES
+--------------------------------------------------
+
+- Choose exactly one supplied skill.
+- Never invent a skill.
+- confidence must be between 0.0 and 1.0.
+- Extract variables from the user's request.
+- Never invent missing information.
+- Variable names must exactly match the selected
+  skill's declared variables.
+- If a required value is absent, do not invent it.
+- Put its name in missing_variables instead.
+
+--------------------------------------------------
+RESEARCH
+--------------------------------------------------
+
+For informational questions or requests to explain,
+learn about, investigate, or research a topic,
+prefer the most appropriate research skill.
+
+The complete user's question may be used as the
+query variable.
+
+Examples:
+
+"What is reinforcement learning?"
+
+should generally route to a research skill with:
+
+{
+  "query": "What is reinforcement learning?"
+}
+
+--------------------------------------------------
+PROJECT VERIFICATION
+--------------------------------------------------
+
+Requests about checking whether a software project
+is healthy, compiling, linting, building, testing,
+or verifying a local project should use an
+appropriate project verification skill when one
+exists.
+
+Only extract project_path when the user actually
+provides a filesystem path.
+
+Example:
+
+"Check if ~/Desktop/ghost is healthy"
+
+may produce:
+
+{
+  "project_path": "~/Desktop/ghost"
+}
+
+But:
+
+"Check if my project is healthy"
+
+does NOT contain a filesystem path.
+
+Do not invent one.
+
+--------------------------------------------------
+IMPORTANT
+--------------------------------------------------
+
+GHOST already knows how to execute these skills.
+
+You are selecting a skill and extracting its
+inputs.
+
+You are NOT executing the skill yourself.
+"""
+
+        skills_json = json.dumps(
+            skills,
+            indent=2,
+        )
+
+        prompt = f"""
+AVAILABLE GHOST SKILLS:
+
+{skills_json}
+
+USER REQUEST:
+
+{user_request}
+
+Choose the best GHOST skill.
+"""
+
+        response = self.client.responses.create(
+            model=self.model,
+            instructions=instructions,
+            input=prompt,
+        )
+
+        raw_text = (
+            response.output_text.strip()
+        )
+
+        try:
+            result = json.loads(
+                raw_text
+            )
+
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                "OpenAI returned invalid "
+                "routing JSON."
+            ) from error
+
+        required_fields = {
+            "skill",
+            "confidence",
+            "variables",
+            "missing_variables",
+            "reason",
+        }
+
+        missing = (
+            required_fields
+            - set(
+                result.keys()
+            )
+        )
+
+        if missing:
+            raise ValueError(
+                "OpenAI routing response "
+                "is missing: "
+                + ", ".join(
+                    sorted(missing)
+                )
+            )
+
+        confidence = result.get(
+            "confidence"
+        )
+
+        if not isinstance(
+            confidence,
+            (int, float),
+        ):
+            raise ValueError(
+                "Routing confidence "
+                "must be numeric."
+            )
+
+        if not (
+            0.0
+            <= confidence
+            <= 1.0
+        ):
+            raise ValueError(
+                "Routing confidence must "
+                "be between 0.0 and 1.0."
+            )
+
+        if not isinstance(
+            result.get("variables"),
+            dict,
+        ):
+            raise ValueError(
+                "Routing variables must "
+                "be an object."
+            )
+
+        if not isinstance(
+            result.get(
+                "missing_variables"
+            ),
+            list,
+        ):
+            raise ValueError(
+                "missing_variables must "
+                "be a list."
+            )
+
+        return result

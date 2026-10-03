@@ -60,8 +60,24 @@ class AIClient:
         if not self.is_available():
             return None
 
-        return self.provider.analyze_demonstrations(
-            demonstrations
+        return (
+            self.provider
+            .analyze_demonstrations(
+                demonstrations
+            )
+        )
+
+    def route_request(
+        self,
+        user_request,
+        skills,
+    ):
+        if not self.is_available():
+            return None
+
+        return self.provider.route_request(
+            user_request=user_request,
+            skills=skills,
         )
 
 
