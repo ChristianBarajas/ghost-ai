@@ -25,7 +25,7 @@ from ghost.skills.storage import (
 app = FastAPI(
     title="GHOST API",
     description="API for the GHOST AI workflow-learning agent.",
-    version="0.5.0",
+    version="0.5.1",
 )
 
 
@@ -74,6 +74,31 @@ class AgentRunRequest(BaseModel):
     request: str = Field(
         min_length=1,
         max_length=1000,
+    )
+
+    provider: str = "duckduckgo"
+
+
+class AgentContinueRequest(BaseModel):
+    original_request: str = Field(
+        min_length=1,
+        max_length=1000,
+    )
+
+    skill: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+
+    reason: str = ""
+
+    variables: Dict[str, Any] = Field(
+        default_factory=dict
     )
 
     provider: str = "duckduckgo"
@@ -274,9 +299,7 @@ def save_skill_execution(
     if task is None:
         raise HTTPException(
             status_code=500,
-            detail=(
-                "Task could not be loaded."
-            ),
+            detail="Task could not be loaded.",
         )
 
     return task
@@ -311,6 +334,89 @@ def display_query_for_skill(
     return original_request
 
 
+def get_missing_variables(
+    skill_name: str,
+    variables: Dict[str, Any],
+):
+    try:
+        skill = load_skill(
+            skill_name
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Skill not found.",
+        )
+
+    missing = []
+
+    for variable in skill.variables:
+        value = variables.get(
+            variable.name
+        )
+
+        if value is None:
+            missing.append(
+                variable.name
+            )
+
+            continue
+
+        if (
+            isinstance(
+                value,
+                str,
+            )
+            and not value.strip()
+        ):
+            missing.append(
+                variable.name
+            )
+
+    return missing
+
+
+def execute_agent_skill(
+    skill_name: str,
+    variables: Dict[str, Any],
+    original_request: str,
+    requested_provider: str,
+):
+    provider = provider_for_skill(
+        skill_name,
+        requested_provider,
+    )
+
+    display_query = (
+        display_query_for_skill(
+            skill_name,
+            variables,
+            original_request,
+        )
+    )
+
+    task = save_skill_execution(
+        skill_name=skill_name,
+        display_query=display_query,
+        provider=provider,
+        variables=variables,
+    )
+
+    if (
+        skill_name
+        in {
+            "research_topic",
+            "research_topic_via_web_search",
+        }
+    ):
+        task = clean_saved_research_task(
+            task
+        )
+
+    return task
+
+
 # --------------------------------------------------
 # HEALTH
 # --------------------------------------------------
@@ -320,7 +426,7 @@ def health():
     return {
         "ok": True,
         "service": "ghost-api",
-        "version": "0.5.0",
+        "version": "0.5.1",
     }
 
 
@@ -354,19 +460,22 @@ def run_agent(
             ),
         )
 
+    missing_variables = (
+        get_missing_variables(
+            decision.skill,
+            decision.variables,
+        )
+    )
+
     route = RouteResponse(
         skill=decision.skill,
         confidence=decision.confidence,
         variables=decision.variables,
-        missing_variables=(
-            decision.missing_variables
-        ),
+        missing_variables=missing_variables,
         reason=decision.reason,
     )
 
-    # GHOST understands the request,
-    # but cannot safely execute yet.
-    if decision.missing_variables:
+    if missing_variables:
         return AgentRunResponse(
             routed=True,
             executed=False,
@@ -374,36 +483,75 @@ def run_agent(
             task=None,
         )
 
-    provider = provider_for_skill(
-        decision.skill,
-        request.provider,
-    )
-
-    display_query = (
-        display_query_for_skill(
-            decision.skill,
-            decision.variables,
-            request.request,
-        )
-    )
-
-    task = save_skill_execution(
+    task = execute_agent_skill(
         skill_name=decision.skill,
-        display_query=display_query,
-        provider=provider,
         variables=decision.variables,
+        original_request=request.request,
+        requested_provider=request.provider,
     )
 
-    if (
-        decision.skill
-        in {
-            "research_topic",
-            "research_topic_via_web_search",
-        }
-    ):
-        task = clean_saved_research_task(
-            task
+    return AgentRunResponse(
+        routed=True,
+        executed=True,
+        route=route,
+        task=task,
+    )
+
+
+@app.post(
+    "/api/agent/continue",
+    response_model=AgentRunResponse,
+)
+def continue_agent(
+    request: AgentContinueRequest,
+):
+    """
+    Continue an already-routed GHOST request
+    after the user supplies missing inputs.
+
+    The skill is NOT routed through the LLM again.
+    """
+
+    try:
+        load_skill(
+            request.skill
         )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Skill not found.",
+        )
+
+    missing_variables = (
+        get_missing_variables(
+            request.skill,
+            request.variables,
+        )
+    )
+
+    route = RouteResponse(
+        skill=request.skill,
+        confidence=request.confidence,
+        variables=request.variables,
+        missing_variables=missing_variables,
+        reason=request.reason,
+    )
+
+    if missing_variables:
+        return AgentRunResponse(
+            routed=True,
+            executed=False,
+            route=route,
+            task=None,
+        )
+
+    task = execute_agent_skill(
+        skill_name=request.skill,
+        variables=request.variables,
+        original_request=request.original_request,
+        requested_provider=request.provider,
+    )
 
     return AgentRunResponse(
         routed=True,
