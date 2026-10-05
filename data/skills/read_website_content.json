@@ -1,0 +1,25 @@
+{
+  "name": "read_website_content",
+  "description": "Open a specified website and read its useful content.",
+  "variables": [
+    {
+      "name": "url",
+      "example_value": "https://example.com",
+      "description": "The website URL to open."
+    }
+  ],
+  "steps": [
+    {
+      "action_type": "navigate",
+      "target": null,
+      "value": null,
+      "url": "{{url}}"
+    },
+    {
+      "action_type": "extract",
+      "target": "useful_content",
+      "value": null,
+      "url": null
+    }
+  ]
+}

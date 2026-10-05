@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from ghost.ai.router import route_request
+from ghost.api.learning import router as learning_router
 from ghost.memory.database import (
     create_task_record,
     get_task_record,
@@ -47,6 +48,15 @@ app.add_middleware(
 # --------------------------------------------------
 
 initialize_database()
+
+
+# --------------------------------------------------
+# SKILL LEARNING
+# --------------------------------------------------
+
+app.include_router(
+    learning_router
+)
 
 
 # --------------------------------------------------

@@ -1,4 +1,5 @@
 import type {
+  AgentContinueRequest,
   AgentRunRequest,
   AgentRunResponse,
   CreateGhostTaskRequest,
@@ -48,6 +49,35 @@ export async function runGhostAgent(
     throw new Error(
       body?.detail
         ?? `GHOST agent failed with status ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
+
+export async function continueGhostAgent(
+  payload: AgentContinueRequest,
+): Promise<AgentRunResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/agent/continue`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    const body = await response
+      .json()
+      .catch(() => null);
+
+    throw new Error(
+      body?.detail
+        ?? `GHOST continuation failed with status ${response.status}`,
     );
   }
 

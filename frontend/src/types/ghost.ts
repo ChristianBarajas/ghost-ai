@@ -109,6 +109,15 @@ export type AgentRunRequest = {
   provider?: string;
 };
 
+export type AgentContinueRequest = {
+  original_request: string;
+  skill: string;
+  confidence: number;
+  reason: string;
+  variables: Record<string, unknown>;
+  provider?: string;
+};
+
 export type AgentRunResponse = {
   routed: boolean;
   executed: boolean;

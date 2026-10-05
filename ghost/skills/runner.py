@@ -399,12 +399,44 @@ def verify_skill(
             research_result,
         )
 
+    if research_result is not None:
+        content = research_result.get(
+            "content",
+            "",
+        )
+
+        url = research_result.get(
+            "url"
+        )
+
+        if (
+            url
+            and isinstance(content, str)
+            and len(content.strip()) > 20
+        ):
+            print(
+                "✅ Extracted useful webpage content."
+            )
+
+            print(
+                f"✅ Current page: {url}"
+            )
+
+            return True
+
+        print(
+            "❌ Extracted webpage content "
+            "could not be verified."
+        )
+
+        return False
+
     print(
-        f"⚠️ No verification rule exists "
+        f"⚠️ No verifiable result exists "
         f"for '{skill.name}'."
     )
 
-    return None
+    return False
 
 
 # --------------------------------------------------
@@ -654,8 +686,9 @@ def run_skill(
             # ----------------------------------
 
             elif step.action_type == "extract":
-                # Extraction already happens inside
-                # research.py while evaluating sources.
+                # research_topic performs extraction
+                # inside research.py while evaluating
+                # external search results.
                 if (
                     skill.name == "research_topic"
                     and research_result is not None
@@ -671,6 +704,39 @@ def run_skill(
                     print(
                         "⚠️ No accepted research "
                         "source available to extract."
+                    )
+
+                elif target == "useful_content":
+                    print(
+                        "👻 EXTRACT → useful_content"
+                    )
+
+                    try:
+                        page.wait_for_load_state(
+                            "domcontentloaded",
+                            timeout=5000,
+                        )
+                    except Exception:
+                        pass
+
+                    content = (
+                        page.locator("body")
+                        .inner_text()
+                        .strip()
+                    )
+
+                    research_result = {
+                        "title": page.title(),
+                        "url": page.url,
+                        "domain": get_domain(
+                            page.url
+                        ),
+                        "content": content,
+                    }
+
+                    print(
+                        f"✅ Extracted "
+                        f"{len(content)} characters."
                     )
 
             # ----------------------------------

@@ -11,6 +11,7 @@ import "./App.css";
 
 import {
   checkGhostHealth,
+  continueGhostAgent,
   getGhostSkills,
   getGhostTasks,
   runGhostAgent,
@@ -49,6 +50,21 @@ function isProjectVerification(
 }
 
 
+function questionForVariable(
+  variable: string,
+  skill: string,
+) {
+  if (
+    skill === "verify_project"
+    && variable === "project_path"
+  ) {
+    return "Which project should I verify?";
+  }
+
+  return `Please provide ${variable}.`;
+}
+
+
 function App() {
   const [
     request,
@@ -76,6 +92,20 @@ function App() {
     setRoute,
   ] = useState<AgentRoute | null>(
     null,
+  );
+
+  const [
+    originalRequest,
+    setOriginalRequest,
+  ] = useState<string | null>(
+    null,
+  );
+
+  const [
+    missingInputs,
+    setMissingInputs,
+  ] = useState<Record<string, string>>(
+    {},
   );
 
   const [
@@ -118,7 +148,9 @@ function App() {
       const tasks =
         await getGhostTasks();
 
-      setTaskHistory(tasks);
+      setTaskHistory(
+        tasks,
+      );
     } catch {
       // History should not block GHOST.
     }
@@ -168,6 +200,42 @@ function App() {
   }, []);
 
 
+  function selectRoutedSkill(
+    skillName: string,
+  ) {
+    const selected =
+      skills.find(
+        (skill) =>
+          skill.name === skillName,
+      );
+
+    if (selected) {
+      setSelectedSkill(
+        selected,
+      );
+    }
+  }
+
+
+  function prepareMissingInputs(
+    routed: AgentRoute,
+  ) {
+    const inputs:
+      Record<string, string> = {};
+
+    for (
+      const variable
+      of routed.missing_variables
+    ) {
+      inputs[variable] = "";
+    }
+
+    setMissingInputs(
+      inputs,
+    );
+  }
+
+
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>,
   ) {
@@ -184,6 +252,8 @@ function App() {
     setTask(null);
     setRoute(null);
     setError(null);
+    setOriginalRequest(null);
+    setMissingInputs({});
 
     try {
       const response =
@@ -200,20 +270,121 @@ function App() {
         response.task,
       );
 
+      selectRoutedSkill(
+        response.route.skill,
+      );
+
       if (response.executed) {
         await loadTaskHistory();
-      }
-
-      const selected =
-        skills.find(
-          (skill) =>
-            skill.name
-            === response.route.skill,
+      } else if (
+        response.route
+          .missing_variables.length
+        > 0
+      ) {
+        setOriginalRequest(
+          cleanRequest,
         );
 
-      if (selected) {
-        setSelectedSkill(
-          selected,
+        prepareMissingInputs(
+          response.route,
+        );
+      }
+    } catch (requestError) {
+      if (
+        requestError
+        instanceof Error
+      ) {
+        setError(
+          requestError.message,
+        );
+      } else {
+        setError(
+          "Unknown GHOST error.",
+        );
+      }
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
+
+  async function handleContinue(
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    if (
+      !route
+      || !originalRequest
+    ) {
+      return;
+    }
+
+    const suppliedVariables = {
+      ...route.variables,
+    };
+
+    for (
+      const variable
+      of route.missing_variables
+    ) {
+      const value =
+        missingInputs[
+          variable
+        ]?.trim();
+
+      if (value) {
+        suppliedVariables[
+          variable
+        ] = value;
+      }
+    }
+
+    setIsRunning(true);
+    setTask(null);
+    setError(null);
+
+    try {
+      const response =
+        await continueGhostAgent({
+          original_request:
+            originalRequest,
+          skill:
+            route.skill,
+          confidence:
+            route.confidence,
+          reason:
+            route.reason,
+          variables:
+            suppliedVariables,
+          provider,
+        });
+
+      setRoute(
+        response.route,
+      );
+
+      setTask(
+        response.task,
+      );
+
+      selectRoutedSkill(
+        response.route.skill,
+      );
+
+      if (response.executed) {
+        setOriginalRequest(
+          null,
+        );
+
+        setMissingInputs(
+          {},
+        );
+
+        await loadTaskHistory();
+      } else {
+        prepareMissingInputs(
+          response.route,
         );
       }
     } catch (requestError) {
@@ -263,6 +434,8 @@ function App() {
 
     setRoute(null);
     setError(null);
+    setOriginalRequest(null);
+    setMissingInputs({});
 
     window.scrollTo({
       top: 0,
@@ -335,9 +508,9 @@ function App() {
           <p>
             Describe the task naturally.
             GHOST will choose the appropriate
-            skill, extract its inputs, execute
-            the workflow, verify the result,
-            and remember the run.
+            skill, collect any missing inputs,
+            execute the workflow, verify the
+            result, and remember the run.
           </p>
         </div>
 
@@ -357,7 +530,7 @@ function App() {
                 event.target.value,
               )
             }
-            placeholder="Try: Check if ~/Desktop/ghost is healthy"
+            placeholder="Try: Check if my project is healthy"
             rows={4}
           />
 
@@ -425,7 +598,7 @@ function App() {
               </span>
 
               <p>
-                Understanding your request...
+                Understanding the request...
               </p>
             </div>
 
@@ -435,7 +608,7 @@ function App() {
               </span>
 
               <p>
-                Selecting the best skill...
+                Resolving skill inputs...
               </p>
             </div>
 
@@ -485,7 +658,8 @@ function App() {
 
             <div className="result-badge success">
               {Math.round(
-                route.confidence * 100,
+                route.confidence
+                * 100,
               )}
               % confidence
             </div>
@@ -512,27 +686,111 @@ function App() {
               {route.reason}
             </p>
           </div>
+        </section>
+      )}
 
-          {route.missing_variables.length
-            > 0 && (
-            <div className="error-panel">
-              <p className="eyebrow">
-                INPUT REQUIRED
-              </p>
 
-              <h3>
-                GHOST understands the task,
-                but needs more information.
-              </h3>
+      {route
+        && originalRequest
+        && route.missing_variables.length
+        > 0 && (
+        <section className="panel result-panel">
+          <p className="eyebrow">
+            GHOST NEEDS INPUT
+          </p>
 
-              <p>
-                Missing:{" "}
-                {route.missing_variables.join(
-                  ", ",
-                )}
-              </p>
+          <h3>
+            {
+              questionForVariable(
+                route
+                  .missing_variables[0],
+                route.skill,
+              )
+            }
+          </h3>
+
+          <p>
+            GHOST already understands the
+            task and selected{" "}
+            <strong>
+              {route.skill}
+            </strong>
+            . It will continue the same
+            execution once the required
+            information is supplied.
+          </p>
+
+          <form
+            className="task-form"
+            onSubmit={handleContinue}
+          >
+            {
+              route.missing_variables.map(
+                (variable) => (
+                  <div
+                    key={variable}
+                  >
+                    <label
+                      htmlFor={
+                        `missing-${variable}`
+                      }
+                    >
+                      {variable}
+                    </label>
+
+                    <input
+                      id={
+                        `missing-${variable}`
+                      }
+                      value={
+                        missingInputs[
+                          variable
+                        ]
+                        ?? ""
+                      }
+                      onChange={(event) =>
+                        setMissingInputs(
+                          (
+                            current,
+                          ) => ({
+                            ...current,
+                            [variable]:
+                              event.target
+                                .value,
+                          }),
+                        )
+                      }
+                      placeholder={
+                        variable
+                        === "project_path"
+                          ? "~/Desktop/ghost"
+                          : variable
+                      }
+                    />
+                  </div>
+                ),
+              )
+            }
+
+            <div className="form-footer">
+              <span className="selected-skill-label">
+                Continuing{" "}
+                {route.skill}
+              </span>
+
+              <button
+                type="submit"
+                disabled={
+                  isRunning
+                  || !backendOnline
+                }
+              >
+                {isRunning
+                  ? "Continuing..."
+                  : "Continue"}
+              </button>
             </div>
-          )}
+          </form>
         </section>
       )}
 
@@ -627,7 +885,8 @@ function App() {
               <h3>
                 {
                   projectResult
-                    .project.project_path
+                    .project
+                    .project_path
                 }
               </h3>
             </div>
@@ -667,7 +926,8 @@ function App() {
               <strong>
                 {
                   projectResult
-                    .summary.total_checks
+                    .summary
+                    .total_checks
                 }
               </strong>
 
@@ -680,7 +940,8 @@ function App() {
               <strong>
                 {
                   projectResult
-                    .summary.passed
+                    .summary
+                    .passed
                 }
               </strong>
 
@@ -693,7 +954,8 @@ function App() {
               <strong>
                 {
                   projectResult
-                    .summary.failed
+                    .summary
+                    .failed
                 }
               </strong>
 
@@ -711,7 +973,9 @@ function App() {
             <div className="terms">
               {
                 projectResult
-                  .project.project_types.map(
+                  .project
+                  .project_types
+                  .map(
                     (type) => (
                       <span
                         key={type}
@@ -731,52 +995,57 @@ function App() {
             </p>
 
             {
-              projectResult.checks.map(
-                (check) => (
-                  <div
-                    key={`${check.component}-${check.name}`}
-                    className="project-check"
-                  >
-                    <span
-                      className={
-                        check.success
-                          ? "check-icon passed"
-                          : "check-icon failed"
+              projectResult
+                .checks
+                .map(
+                  (check) => (
+                    <div
+                      key={
+                        `${check.component}-${check.name}`
                       }
+                      className="project-check"
                     >
-                      {check.success
-                        ? "✓"
-                        : "×"}
-                    </span>
+                      <span
+                        className={
+                          check.success
+                            ? "check-icon passed"
+                            : "check-icon failed"
+                        }
+                      >
+                        {check.success
+                          ? "✓"
+                          : "×"}
+                      </span>
 
-                    <div>
-                      <strong>
-                        {check.name}
-                      </strong>
+                      <div>
+                        <strong>
+                          {check.name}
+                        </strong>
 
-                      <p>
-                        {check.component}
-                        {" · "}
-                        {check.command.join(
-                          " ",
-                        )}
-                      </p>
+                        <p>
+                          {check.component}
+                          {" · "}
+                          {
+                            check.command
+                              .join(" ")
+                          }
+                        </p>
+                      </div>
+
+                      <span
+                        className={
+                          check.success
+                            ? "check-status passed"
+                            : "check-status failed"
+                        }
+                      >
+                        {check.success
+                          ? "PASS"
+                          : "FAIL"}
+                      </span>
                     </div>
-
-                    <span
-                      className={
-                        check.success
-                          ? "check-status passed"
-                          : "check-status failed"
-                      }
-                    >
-                      {check.success
-                        ? "PASS"
-                        : "FAIL"}
-                    </span>
-                  </div>
-                ),
-              )
+                  ),
+                )
             }
           </div>
         </section>
@@ -938,7 +1207,9 @@ function App() {
                     {selectedSkill.steps.map(
                       (step, index) => (
                         <div
-                          key={`${step.action_type}-${index}`}
+                          key={
+                            `${step.action_type}-${index}`
+                          }
                           className="learned-step"
                         >
                           <span className="step-number">
@@ -1051,7 +1322,8 @@ function App() {
 
                     <time>
                       {formatTaskDate(
-                        historyTask.created_at,
+                        historyTask
+                          .created_at,
                       )}
                     </time>
                   </div>
