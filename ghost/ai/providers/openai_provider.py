@@ -402,6 +402,46 @@ ROUTING RULES
 - If a required value is absent, do not invent it.
 - Put its name in missing_variables instead.
 
+- Each supplied skill may include an experience object
+  describing GHOST's historical executions of that skill.
+- Experience is a SECONDARY routing signal.
+- Semantic fit with the user's request is always the
+  primary signal.
+- Never choose an unrelated skill simply because it has
+  a higher historical success rate.
+- A skill with zero previous runs may still be the best
+  choice if it clearly matches the request.
+- Treat small sample sizes cautiously.
+- One successful run does not establish perfect
+  reliability.
+- Repeated verified success is stronger evidence than
+  one or two successful executions.
+- Repeated failed executions may reduce confidence when
+  another equally appropriate skill exists.
+
+--------------------------------------------------
+EXPERIENCE
+--------------------------------------------------
+
+A skill may include data like:
+
+{
+  "experience": {
+    "runs": 7,
+    "successful": 6,
+    "verified": 6,
+    "failed": 1,
+    "success_rate": 0.857,
+    "verification_rate": 0.857
+  }
+}
+
+Interpret this as GHOST's real historical experience
+using that capability.
+
+Use it to inform confidence and tie-breaking, not to
+replace intent matching.
+
 --------------------------------------------------
 RESEARCH
 --------------------------------------------------

@@ -10,10 +10,18 @@ DB_PATH = Path("data/ghost.db")
 
 
 def get_connection():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DB_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
+    connection = sqlite3.connect(
+        DB_PATH
+    )
+
+    connection.row_factory = (
+        sqlite3.Row
+    )
 
     return connection
 
@@ -50,7 +58,7 @@ def initialize_database():
         """
     )
 
-    # GHOST v0.3 persistent task execution history.
+    # Persistent task execution history.
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS tasks (
@@ -77,7 +85,9 @@ def initialize_database():
 # OBSERVED WORKFLOWS
 # --------------------------------------------------
 
-def create_workflow(name: str) -> int:
+def create_workflow(
+    name: str,
+) -> int:
     connection = get_connection()
 
     cursor = connection.execute(
@@ -96,7 +106,10 @@ def create_workflow(name: str) -> int:
     return workflow_id
 
 
-def save_action(workflow_id: int, action: Action):
+def save_action(
+    workflow_id: int,
+    action: Action,
+):
     connection = get_connection()
 
     connection.execute(
@@ -125,7 +138,9 @@ def save_action(workflow_id: int, action: Action):
     connection.close()
 
 
-def get_actions(workflow_id: int):
+def get_actions(
+    workflow_id: int,
+):
     connection = get_connection()
 
     rows = connection.execute(
@@ -183,13 +198,17 @@ def update_task_record(
     success: Optional[bool] = None,
     verified: Optional[bool] = None,
     skill: Optional[str] = None,
-    result: Optional[Dict[str, Any]] = None,
+    result: Optional[
+        Dict[str, Any]
+    ] = None,
     error: Optional[str] = None,
 ):
     connection = get_connection()
 
     result_json = (
-        json.dumps(result)
+        json.dumps(
+            result
+        )
         if result is not None
         else None
     )
@@ -205,7 +224,10 @@ def update_task_record(
             result_json = ?,
             error = ?,
             completed_at = CASE
-                WHEN ? IN ('completed', 'failed')
+                WHEN ? IN (
+                    'completed',
+                    'failed'
+                )
                 THEN CURRENT_TIMESTAMP
                 ELSE completed_at
             END
@@ -213,8 +235,16 @@ def update_task_record(
         """,
         (
             status,
-            int(success) if success is not None else None,
-            int(verified) if verified is not None else None,
+            (
+                int(success)
+                if success is not None
+                else None
+            ),
+            (
+                int(verified)
+                if verified is not None
+                else None
+            ),
             skill,
             result_json,
             error,
@@ -227,7 +257,9 @@ def update_task_record(
     connection.close()
 
 
-def _task_row_to_dict(row):
+def _task_row_to_dict(
+    row,
+):
     if row is None:
         return None
 
@@ -235,7 +267,10 @@ def _task_row_to_dict(row):
 
     if row["result_json"]:
         try:
-            result = json.loads(row["result_json"])
+            result = json.loads(
+                row["result_json"]
+            )
+
         except json.JSONDecodeError:
             result = None
 
@@ -245,24 +280,36 @@ def _task_row_to_dict(row):
         "query": row["query"],
         "provider": row["provider"],
         "success": (
-            bool(row["success"])
-            if row["success"] is not None
+            bool(
+                row["success"]
+            )
+            if row["success"]
+            is not None
             else None
         ),
         "verified": (
-            bool(row["verified"])
-            if row["verified"] is not None
+            bool(
+                row["verified"]
+            )
+            if row["verified"]
+            is not None
             else None
         ),
         "skill": row["skill"],
         "result": result,
         "error": row["error"],
-        "created_at": row["created_at"],
-        "completed_at": row["completed_at"],
+        "created_at": (
+            row["created_at"]
+        ),
+        "completed_at": (
+            row["completed_at"]
+        ),
     }
 
 
-def get_task_record(task_id: int):
+def get_task_record(
+    task_id: int,
+):
     connection = get_connection()
 
     row = connection.execute(
@@ -276,10 +323,14 @@ def get_task_record(task_id: int):
 
     connection.close()
 
-    return _task_row_to_dict(row)
+    return _task_row_to_dict(
+        row
+    )
 
 
-def list_task_records(limit: int = 50):
+def list_task_records(
+    limit: int = 50,
+):
     connection = get_connection()
 
     rows = connection.execute(
@@ -295,6 +346,149 @@ def list_task_records(limit: int = 50):
     connection.close()
 
     return [
-        _task_row_to_dict(row)
+        _task_row_to_dict(
+            row
+        )
         for row in rows
     ]
+
+
+# --------------------------------------------------
+# SKILL EXPERIENCE
+# --------------------------------------------------
+
+def get_skill_experience(
+    skill_name: str,
+) -> Dict[str, Any]:
+    """
+    Summarize GHOST's historical execution
+    experience with one skill.
+
+    This turns raw task history into a compact
+    reliability signal that the reasoning layer
+    can use when evaluating capabilities.
+    """
+
+    connection = get_connection()
+
+    row = connection.execute(
+        """
+        SELECT
+            COUNT(*) AS runs,
+
+            SUM(
+                CASE
+                    WHEN success = 1
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS successful,
+
+            SUM(
+                CASE
+                    WHEN verified = 1
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS verified,
+
+            SUM(
+                CASE
+                    WHEN status = 'failed'
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS failed
+
+        FROM tasks
+
+        WHERE skill = ?
+        """,
+        (
+            skill_name,
+        ),
+    ).fetchone()
+
+    connection.close()
+
+    runs = int(
+        row["runs"] or 0
+    )
+
+    successful = int(
+        row["successful"] or 0
+    )
+
+    verified = int(
+        row["verified"] or 0
+    )
+
+    failed = int(
+        row["failed"] or 0
+    )
+
+    success_rate = (
+        successful / runs
+        if runs > 0
+        else None
+    )
+
+    verification_rate = (
+        verified / runs
+        if runs > 0
+        else None
+    )
+
+    return {
+        "runs": runs,
+        "successful": successful,
+        "verified": verified,
+        "failed": failed,
+        "success_rate": (
+            round(
+                success_rate,
+                3,
+            )
+            if success_rate
+            is not None
+            else None
+        ),
+        "verification_rate": (
+            round(
+                verification_rate,
+                3,
+            )
+            if verification_rate
+            is not None
+            else None
+        ),
+    }
+
+
+def get_all_skill_experience():
+    """
+    Return execution experience grouped by
+    every skill that has appeared in task
+    history.
+    """
+
+    connection = get_connection()
+
+    rows = connection.execute(
+        """
+        SELECT DISTINCT skill
+        FROM tasks
+        WHERE skill IS NOT NULL
+        ORDER BY skill ASC
+        """
+    ).fetchall()
+
+    connection.close()
+
+    return {
+        row["skill"]:
+            get_skill_experience(
+                row["skill"]
+            )
+        for row in rows
+    }
