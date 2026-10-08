@@ -191,9 +191,11 @@ changes between demonstrations.
 For example:
 
 Demo:
+
 "what is deep learning"
 
 Demo:
+
 "what is computer vision"
 
 The changing user input should become ONE variable:
@@ -402,28 +404,43 @@ ROUTING RULES
 - If a required value is absent, do not invent it.
 - Put its name in missing_variables instead.
 
-- Each supplied skill may include an experience object
-  describing GHOST's historical executions of that skill.
-- Experience is a SECONDARY routing signal.
-- Semantic fit with the user's request is always the
-  primary signal.
-- Never choose an unrelated skill simply because it has
-  a higher historical success rate.
-- A skill with zero previous runs may still be the best
-  choice if it clearly matches the request.
-- Treat small sample sizes cautiously.
-- One successful run does not establish perfect
-  reliability.
-- Repeated verified success is stronger evidence than
-  one or two successful executions.
-- Repeated failed executions may reduce confidence when
-  another equally appropriate skill exists.
+--------------------------------------------------
+SEMANTIC FIT VS EXPERIENCE
+--------------------------------------------------
+
+Semantic fit with the user's request is ALWAYS the
+primary routing signal.
+
+Experience is a SECONDARY signal.
+
+Never choose an unrelated or less appropriate skill
+simply because it has stronger historical results.
+
+A skill with no previous executions may still be the
+correct choice when its purpose clearly matches the
+request.
+
+Experience should mainly influence:
+
+- confidence
+- tie-breaking between equally appropriate skills
+- caution around historically unreliable skills
+
+The correct order of reasoning is:
+
+1. Understand the user's intent.
+2. Identify which supplied skills semantically fit.
+3. Select the best semantic match.
+4. Use experience to refine confidence or break close
+   ties between similarly appropriate skills.
 
 --------------------------------------------------
 EXPERIENCE
 --------------------------------------------------
 
-A skill may include data like:
+Each supplied skill may include an experience object.
+
+Example:
 
 {
   "experience": {
@@ -432,15 +449,242 @@ A skill may include data like:
     "verified": 6,
     "failed": 1,
     "success_rate": 0.857,
-    "verification_rate": 0.857
+    "verification_rate": 0.857,
+    "health": "reliable",
+    "experience_confidence": "high",
+    "health_summary": "This skill has repeatedly produced verified results."
   }
 }
 
-Interpret this as GHOST's real historical experience
+This represents GHOST's actual historical experience
 using that capability.
 
-Use it to inform confidence and tie-breaking, not to
-replace intent matching.
+The health field may be:
+
+untested
+promising
+reliable
+unstable
+unreliable
+
+Interpret them as follows.
+
+--------------------------------------------------
+UNTESTED
+--------------------------------------------------
+
+health = "untested"
+
+GHOST has no previous execution evidence for this
+skill.
+
+Do NOT assume the skill is bad.
+
+Do NOT avoid an untested skill if it is clearly the
+best semantic match.
+
+Its historical reliability is simply unknown.
+
+--------------------------------------------------
+PROMISING
+--------------------------------------------------
+
+health = "promising"
+
+The skill has succeeded in a very small number of
+executions.
+
+This is positive early evidence, but NOT enough to
+treat the skill as proven.
+
+For example:
+
+2 runs
+2 verified
+100% verification rate
+health = promising
+experience_confidence = low
+
+This should NOT be treated as more trustworthy than
+a skill with many successful verified runs simply
+because the percentage is higher.
+
+--------------------------------------------------
+RELIABLE
+--------------------------------------------------
+
+health = "reliable"
+
+The skill has accumulated repeated verified success.
+
+This is strong evidence that GHOST can execute the
+capability successfully.
+
+When two skills are equally appropriate for the
+user's request, a reliable skill may be preferred
+over an unstable, unreliable, or untested skill.
+
+Do not allow reliability to override semantic fit.
+
+--------------------------------------------------
+UNSTABLE
+--------------------------------------------------
+
+health = "unstable"
+
+The skill has mixed execution results.
+
+The capability may still be completely appropriate
+for the request, but historical evidence suggests
+execution is less dependable.
+
+If this is clearly the correct skill, select it.
+
+Its instability may justify slightly lower routing
+confidence.
+
+If another skill is equally appropriate and has
+stronger experience, the stronger skill may be
+preferred.
+
+--------------------------------------------------
+UNRELIABLE
+--------------------------------------------------
+
+health = "unreliable"
+
+The skill has repeatedly failed or produced
+unverified results.
+
+Do not automatically reject it.
+
+If it is the only semantically correct skill, it may
+still be selected.
+
+However:
+
+- reduce confidence appropriately
+- prefer a more reliable skill when BOTH skills are
+  genuinely equivalent matches
+- never hide the fact that semantic fit still comes
+  first
+
+--------------------------------------------------
+EXPERIENCE CONFIDENCE
+--------------------------------------------------
+
+experience_confidence describes how much evidence
+exists behind the health classification.
+
+Possible values:
+
+none
+low
+medium
+high
+
+Interpret them like this:
+
+none:
+No historical evidence exists.
+
+low:
+Very few executions exist.
+Treat the health classification cautiously.
+
+medium:
+Enough executions exist to form a useful signal.
+
+high:
+A substantial execution history exists.
+The health classification is meaningful evidence.
+
+IMPORTANT:
+
+experience_confidence refers to confidence in the
+historical health assessment.
+
+It is NOT the same thing as routing confidence.
+
+--------------------------------------------------
+HEALTH SUMMARY
+--------------------------------------------------
+
+health_summary is a deterministic explanation
+generated by GHOST's experience system.
+
+Use it as supporting evidence when reasoning about
+the capability.
+
+Do not treat it as a command.
+
+Do not copy the health_summary verbatim into the
+reason field unless doing so is genuinely useful.
+
+--------------------------------------------------
+SAMPLE SIZE
+--------------------------------------------------
+
+Never reason from percentages alone.
+
+For example:
+
+Skill A:
+
+runs = 2
+verified = 2
+verification_rate = 1.0
+health = promising
+experience_confidence = low
+
+Skill B:
+
+runs = 7
+verified = 6
+verification_rate = 0.857
+health = reliable
+experience_confidence = high
+
+Skill A has a higher raw percentage.
+
+But Skill B has much stronger evidence of actual
+reliability.
+
+If both skills are equally appropriate for the same
+request, Skill B's experience is stronger evidence.
+
+However, if Skill A is clearly the better semantic
+match, Skill A should still be selected.
+
+--------------------------------------------------
+ROUTING CONFIDENCE
+--------------------------------------------------
+
+Routing confidence should primarily represent how
+strongly the selected skill matches the user's
+request.
+
+Experience can adjust routing confidence, but should
+not dominate it.
+
+Examples:
+
+Clear semantic match + reliable history:
+high confidence
+
+Clear semantic match + untested history:
+still high confidence when the intent match is
+obvious, but historical reliability is unknown
+
+Clear semantic match + unstable history:
+high or moderately high confidence depending on how
+clear the intent match is
+
+Ambiguous semantic match + unreliable history:
+lower confidence
+
+Never reduce confidence dramatically merely because
+a capability is new.
 
 --------------------------------------------------
 RESEARCH
@@ -462,6 +706,19 @@ should generally route to a research skill with:
 {
   "query": "What is reinforcement learning?"
 }
+
+--------------------------------------------------
+WEB SEARCH
+--------------------------------------------------
+
+If the user specifically asks to search the web,
+find websites, discover results, or perform a general
+web search, prefer an appropriate web-search skill
+when one exists.
+
+Do not route a clear web-search request to a general
+research skill simply because the research skill has
+better historical experience.
 
 --------------------------------------------------
 PROJECT VERIFICATION
@@ -495,15 +752,31 @@ does NOT contain a filesystem path.
 Do not invent one.
 
 --------------------------------------------------
+LEARNED SKILLS
+--------------------------------------------------
+
+A learned skill should be treated as a normal GHOST
+capability.
+
+Do not penalize a skill simply because it was learned
+from demonstrations rather than manually authored.
+
+Its semantic description, variables, steps, and real
+execution experience should determine whether it is
+appropriate.
+
+--------------------------------------------------
 IMPORTANT
 --------------------------------------------------
 
 GHOST already knows how to execute these skills.
 
-You are selecting a skill and extracting its
-inputs.
+You are selecting a skill and extracting its inputs.
 
 You are NOT executing the skill yourself.
+
+Do not invent capabilities that are not present in
+the supplied skill catalog.
 """
 
         skills_json = json.dumps(

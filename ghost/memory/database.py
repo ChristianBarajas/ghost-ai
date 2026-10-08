@@ -357,6 +357,123 @@ def list_task_records(
 # SKILL EXPERIENCE
 # --------------------------------------------------
 
+def classify_skill_health(
+    runs: int,
+    successful: int,
+    verified: int,
+    failed: int,
+) -> Dict[str, Any]:
+    """
+    Interpret raw execution history into a
+    cautious skill-health classification.
+
+    GHOST should not over-trust tiny samples.
+    A skill that succeeded once or twice may be
+    promising, but it is not yet proven.
+    """
+
+    if runs == 0:
+        return {
+            "health": "untested",
+            "confidence": "none",
+            "summary": (
+                "GHOST has no execution "
+                "experience with this skill yet."
+            ),
+        }
+
+    verification_rate = (
+        verified / runs
+    )
+
+    failure_rate = (
+        failed / runs
+    )
+
+    # Tiny sample sizes should be treated
+    # cautiously regardless of the raw rate.
+    if runs <= 2:
+        if verified == runs:
+            return {
+                "health": "promising",
+                "confidence": "low",
+                "summary": (
+                    "This skill has succeeded "
+                    "so far, but GHOST has too "
+                    "little experience to treat "
+                    "it as reliable."
+                ),
+            }
+
+        if verified > 0:
+            return {
+                "health": "unstable",
+                "confidence": "low",
+                "summary": (
+                    "This skill has mixed early "
+                    "results and needs more "
+                    "successful executions."
+                ),
+            }
+
+        return {
+            "health": "unreliable",
+            "confidence": "low",
+            "summary": (
+                "This skill has not produced a "
+                "verified result in its limited "
+                "execution history."
+            ),
+        }
+
+    # Three or more executions provide a more
+    # meaningful reliability signal.
+    if (
+        verification_rate >= 0.8
+        and failure_rate <= 0.2
+    ):
+        return {
+            "health": "reliable",
+            "confidence": (
+                "high"
+                if runs >= 7
+                else "medium"
+            ),
+            "summary": (
+                "This skill has repeatedly "
+                "produced verified results."
+            ),
+        }
+
+    if verification_rate >= 0.5:
+        return {
+            "health": "unstable",
+            "confidence": (
+                "high"
+                if runs >= 7
+                else "medium"
+            ),
+            "summary": (
+                "This skill has some successful "
+                "history, but its results are "
+                "not consistently reliable."
+            ),
+        }
+
+    return {
+        "health": "unreliable",
+        "confidence": (
+            "high"
+            if runs >= 7
+            else "medium"
+        ),
+        "summary": (
+            "This skill has repeatedly failed "
+            "or produced unverified results."
+        ),
+    }
+
+
 def get_skill_experience(
     skill_name: str,
 ) -> Dict[str, Any]:
@@ -364,9 +481,9 @@ def get_skill_experience(
     Summarize GHOST's historical execution
     experience with one skill.
 
-    This turns raw task history into a compact
-    reliability signal that the reasoning layer
-    can use when evaluating capabilities.
+    This turns raw task history into reliability
+    metrics plus a cautious health interpretation
+    for the reasoning layer.
     """
 
     connection = get_connection()
@@ -439,11 +556,19 @@ def get_skill_experience(
         else None
     )
 
+    health = classify_skill_health(
+        runs=runs,
+        successful=successful,
+        verified=verified,
+        failed=failed,
+    )
+
     return {
         "runs": runs,
         "successful": successful,
         "verified": verified,
         "failed": failed,
+
         "success_rate": (
             round(
                 success_rate,
@@ -453,6 +578,7 @@ def get_skill_experience(
             is not None
             else None
         ),
+
         "verification_rate": (
             round(
                 verification_rate,
@@ -461,6 +587,14 @@ def get_skill_experience(
             if verification_rate
             is not None
             else None
+        ),
+
+        "health": health["health"],
+        "experience_confidence": (
+            health["confidence"]
+        ),
+        "health_summary": (
+            health["summary"]
         ),
     }
 
