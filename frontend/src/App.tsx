@@ -61,7 +61,7 @@ function questionForVariable(
     return "Which project should I verify?";
   }
 
-  return `Please provide ${variable}.`;
+  return `Provide ${variable}`;
 }
 
 
@@ -148,9 +148,7 @@ function App() {
       const tasks =
         await getGhostTasks();
 
-      setTaskHistory(
-        tasks,
-      );
+      setTaskHistory(tasks);
     } catch {
       // History should not block GHOST.
     }
@@ -162,9 +160,7 @@ function App() {
       const learnedSkills =
         await getGhostSkills();
 
-      setSkills(
-        learnedSkills,
-      );
+      setSkills(learnedSkills);
 
       setSelectedSkill(
         learnedSkills.find(
@@ -210,9 +206,7 @@ function App() {
       );
 
     if (selected) {
-      setSelectedSkill(
-        selected,
-      );
+      setSelectedSkill(selected);
     }
   }
 
@@ -230,9 +224,7 @@ function App() {
       inputs[variable] = "";
     }
 
-    setMissingInputs(
-      inputs,
-    );
+    setMissingInputs(inputs);
   }
 
 
@@ -262,13 +254,8 @@ function App() {
           provider,
         });
 
-      setRoute(
-        response.route,
-      );
-
-      setTask(
-        response.task,
-      );
+      setRoute(response.route);
+      setTask(response.task);
 
       selectRoutedSkill(
         response.route.skill,
@@ -276,11 +263,7 @@ function App() {
 
       if (response.executed) {
         await loadTaskHistory();
-      } else if (
-        response.route
-          .missing_variables.length
-        > 0
-      ) {
+      } else {
         setOriginalRequest(
           cleanRequest,
         );
@@ -360,26 +343,16 @@ function App() {
           provider,
         });
 
-      setRoute(
-        response.route,
-      );
-
-      setTask(
-        response.task,
-      );
+      setRoute(response.route);
+      setTask(response.task);
 
       selectRoutedSkill(
         response.route.skill,
       );
 
       if (response.executed) {
-        setOriginalRequest(
-          null,
-        );
-
-        setMissingInputs(
-          {},
-        );
+        setOriginalRequest(null);
+        setMissingInputs({});
 
         await loadTaskHistory();
       } else {
@@ -428,9 +401,7 @@ function App() {
   function openHistoryTask(
     historyTask: GhostTask,
   ) {
-    setTask(
-      historyTask,
-    );
+    setTask(historyTask);
 
     setRoute(null);
     setError(null);
@@ -460,88 +431,319 @@ function App() {
       ? task.result
       : null;
 
+  const verifiedRuns =
+    taskHistory.filter(
+      (historyTask) =>
+        historyTask.verified,
+    ).length;
+
 
   return (
-    <main className="app-shell">
-      <section className="hero">
-        <div className="top-bar">
-          <div className="brand">
-            <div className="ghost-mark">
-              👻
+    <main className="ghost-os">
+      <header className="system-header">
+        <div className="brand-cluster">
+          <div className="ghost-emblem">
+            <img
+              src="/ghost-logo.png"
+              alt=""
+            />
+          </div>
+
+          <div>
+            <div className="header-title">
+              GHOST
             </div>
 
-            <div>
-              <h1>
-                GHOST
-              </h1>
-
-              <p className="brand-subtitle">
-                Self-Programming Personal Software
-              </p>
+            <div className="header-subtitle">
+              OBSERVE. LEARN. AUTOMATE.
             </div>
           </div>
+        </div>
+
+        <div
+          className={
+            backendOnline
+              ? "system-pill online"
+              : "system-pill offline"
+          }
+        >
+          <span />
+
+          {backendOnline
+            ? "GHOST ONLINE"
+            : "GHOST OFFLINE"}
+        </div>
+      </header>
+
+
+      <section className="presence-stage">
+        <aside className="awareness-panel">
+          <div className="micro-heading">
+            AWARENESS
+          </div>
+
+          <div className="awareness-list">
+            <div className="awareness-row">
+              <span>
+                BACKEND
+              </span>
+
+              <strong
+                className={
+                  backendOnline
+                    ? "good"
+                    : "bad"
+                }
+              >
+                {backendOnline
+                  ? "CONNECTED"
+                  : "OFFLINE"}
+              </strong>
+            </div>
+
+            <div className="awareness-row">
+              <span>
+                MEMORY
+              </span>
+
+              <strong>
+                {taskHistory.length}
+                {" "}
+                RUNS
+              </strong>
+            </div>
+
+            <div className="awareness-row">
+              <span>
+                VERIFIED
+              </span>
+
+              <strong className="good">
+                {verifiedRuns}
+              </strong>
+            </div>
+
+            <div className="awareness-row">
+              <span>
+                SKILLS
+              </span>
+
+              <strong>
+                {skills.length}
+              </strong>
+            </div>
+
+            <div className="awareness-row">
+              <span>
+                ROUTER
+              </span>
+
+              <strong className="good">
+                {backendOnline
+                  ? "LISTENING"
+                  : "DORMANT"}
+              </strong>
+            </div>
+          </div>
+
+          <div className="awareness-footer">
+            GHOST observes execution,
+            remembers outcomes, and selects
+            capabilities from learned behavior.
+          </div>
+        </aside>
+
+
+        <section className="entity-stage">
+          <span className="entity-label">
+            GHOST // PRESENCE
+          </span>
+
+          <span className="entity-state">
+            {isRunning
+              ? "PROCESSING"
+              : "AWAITING DIRECTIVE"}
+          </span>
 
           <div
             className={
-              backendOnline
-                ? "status online"
-                : "status offline"
+              isRunning
+                ? "presence-core active"
+                : "presence-core"
             }
           >
-            <span className="status-dot" />
+            <div className="presence-aura" />
 
-            {backendOnline
-              ? "Backend Online"
-              : "Backend Offline"}
+            <div className="arc arc-one" />
+            <div className="arc arc-two" />
+            <div className="arc arc-three" />
+            <div className="arc arc-four" />
+
+            <span className="particle particle-one" />
+            <span className="particle particle-two" />
+            <span className="particle particle-three" />
+            <span className="particle particle-four" />
+            <span className="particle particle-five" />
+
+            <div className="ghost-wordmark">
+              <span className="ghost-name">
+                GHOST
+              </span>
+
+              <span className="ghost-chevron">
+                ▾
+              </span>
+            </div>
           </div>
+
+          <div className="entity-status">
+            STATE //
+            {" "}
+            <strong>
+              {isRunning
+                ? "THINKING"
+                : "LISTENING"}
+            </strong>
+          </div>
+
+          <div className="entity-readout">
+            <div>
+              <span>
+                ACTIVE SKILL
+              </span>
+
+              <strong>
+                {route?.skill
+                  ?? selectedSkill?.name
+                  ?? "NONE"}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                CONFIDENCE
+              </span>
+
+              <strong>
+                {route
+                  ? `${Math.round(
+                    route.confidence
+                    * 100,
+                  )}%`
+                  : "--"}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                EXECUTION
+              </span>
+
+              <strong>
+                {isRunning
+                  ? "ACTIVE"
+                  : task
+                    ? task.status
+                      .toUpperCase()
+                    : "IDLE"}
+              </strong>
+            </div>
+          </div>
+        </section>
+
+
+        <aside className="capability-panel">
+          <div className="micro-heading">
+            CAPABILITIES
+          </div>
+
+          <div className="capability-list">
+            {skills.map(
+              (skill) => (
+                <button
+                  key={skill.name}
+                  type="button"
+                  className={
+                    selectedSkill?.name
+                    === skill.name
+                      ? "capability-node active"
+                      : "capability-node"
+                  }
+                  onClick={() =>
+                    setSelectedSkill(
+                      skill,
+                    )
+                  }
+                >
+                  <span>
+                    <strong>
+                      {skill.name}
+                    </strong>
+
+                    <small>
+                      {skill.steps.length}
+                      {" "}
+                      steps //
+                      {" "}
+                      {skill.variables.length}
+                      {" "}
+                      inputs
+                    </small>
+                  </span>
+
+                  <span className="capability-dot" />
+                </button>
+              ),
+            )}
+          </div>
+        </aside>
+      </section>
+
+
+      <section className="command-deck">
+        <div className="command-label">
+          DIRECTIVE
         </div>
 
-        <div className="hero-copy">
-          <p className="eyebrow">
-            AI WORKFLOW AGENT
-          </p>
+        <form onSubmit={handleSubmit}>
+          <div className="command-entry">
+            <span className="command-prefix">
+              &gt;
+            </span>
 
-          <h2>
-            What do you want GHOST to do?
-          </h2>
+            <textarea
+              value={request}
+              onChange={(event) =>
+                setRequest(
+                  event.target.value,
+                )
+              }
+              rows={2}
+              spellCheck={false}
+              placeholder="Tell GHOST what you want..."
+            />
 
-          <p>
-            Describe the task naturally.
-            GHOST will choose the appropriate
-            skill, collect any missing inputs,
-            execute the workflow, verify the
-            result, and remember the run.
-          </p>
-        </div>
+            <button
+              type="submit"
+              className="execute-button"
+              disabled={
+                isRunning
+                || !backendOnline
+              }
+            >
+              {isRunning
+                ? "PROCESSING"
+                : "EXECUTE"}
+            </button>
+          </div>
 
-        <form
-          className="task-form"
-          onSubmit={handleSubmit}
-        >
-          <label htmlFor="ghost-request">
-            Give GHOST a task
-          </label>
-
-          <textarea
-            id="ghost-request"
-            value={request}
-            onChange={(event) =>
-              setRequest(
-                event.target.value,
-              )
-            }
-            placeholder="Try: Check if my project is healthy"
-            rows={4}
-          />
-
-          <div className="form-footer">
+          <div className="command-options">
             <div className="provider-control">
-              <label htmlFor="provider">
-                Web provider
+              <label>
+                WEB PROVIDER
               </label>
 
               <select
-                id="provider"
                 value={provider}
                 onChange={(event) =>
                   setProvider(
@@ -559,131 +761,100 @@ function App() {
               </select>
             </div>
 
-            <button
-              type="submit"
-              disabled={
-                isRunning
-                || !backendOnline
-              }
-            >
-              {isRunning
-                ? "GHOST is thinking..."
-                : "Run GHOST"}
-            </button>
+            <span className="command-path">
+              UNDERSTAND → CHOOSE →
+              ACT → VERIFY → REMEMBER
+            </span>
           </div>
         </form>
       </section>
 
 
       {isRunning && (
-        <section className="panel execution-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">
-                AGENT EXECUTION
-              </p>
+        <section className="execution-trace">
+          <span className="trace-label">
+            EXECUTION
+          </span>
 
-              <h3>
-                GHOST is working
-              </h3>
-            </div>
+          <span className="trace-step active">
+            UNDERSTANDING
+          </span>
 
-            <div className="spinner" />
-          </div>
+          <div className="trace-line" />
 
-          <div className="execution-list">
-            <div className="execution-step active">
-              <span>
-                01
-              </span>
+          <span className="trace-step active">
+            RESOLVING
+          </span>
 
-              <p>
-                Understanding the request...
-              </p>
-            </div>
+          <div className="trace-line" />
 
-            <div className="execution-step">
-              <span>
-                02
-              </span>
-
-              <p>
-                Resolving skill inputs...
-              </p>
-            </div>
-
-            <div className="execution-step">
-              <span>
-                03
-              </span>
-
-              <p>
-                Executing and verifying...
-              </p>
-            </div>
-          </div>
-        </section>
-      )}
-
-
-      {error && (
-        <section className="panel error-panel">
-          <p className="eyebrow">
-            ERROR
-          </p>
-
-          <h3>
-            GHOST could not complete the task.
-          </h3>
-
-          <p>
-            {error}
-          </p>
+          <span className="trace-step">
+            VERIFYING
+          </span>
         </section>
       )}
 
 
       {route && (
-        <section className="panel result-panel">
-          <div className="result-header">
-            <div>
-              <p className="eyebrow">
-                AI ROUTING
-              </p>
+        <section className="route-strip">
+          <div>
+            <span>
+              ROUTE
+            </span>
 
-              <h3>
-                {route.skill}
-              </h3>
-            </div>
+            <strong>
+              {route.skill}
+            </strong>
+          </div>
 
-            <div className="result-badge success">
+          <div>
+            <span>
+              CONFIDENCE
+            </span>
+
+            <strong>
               {Math.round(
                 route.confidence
                 * 100,
               )}
-              % confidence
-            </div>
+              %
+            </strong>
           </div>
 
-          <div className="result-meta">
+          <div>
             <span>
-              Skill:{" "}
-              {route.skill}
+              INPUTS
             </span>
 
-            <span>
-              Inputs:{" "}
+            <strong>
               {
                 Object.keys(
                   route.variables,
                 ).length
               }
-            </span>
+            </strong>
           </div>
 
-          <div className="summary-card">
-            <p className="summary">
-              {route.reason}
+          <p>
+            {route.reason}
+          </p>
+        </section>
+      )}
+
+
+      {error && (
+        <section className="alert-panel">
+          <span className="alert-code">
+            !
+          </span>
+
+          <div>
+            <strong>
+              GHOST EXECUTION FAILURE
+            </strong>
+
+            <p>
+              {error}
             </p>
           </div>
         </section>
@@ -694,164 +865,135 @@ function App() {
         && originalRequest
         && route.missing_variables.length
         > 0 && (
-        <section className="panel result-panel">
-          <p className="eyebrow">
-            GHOST NEEDS INPUT
-          </p>
-
-          <h3>
-            {
-              questionForVariable(
-                route
-                  .missing_variables[0],
-                route.skill,
-              )
-            }
-          </h3>
-
-          <p>
-            GHOST already understands the
-            task and selected{" "}
-            <strong>
-              {route.skill}
-            </strong>
-            . It will continue the same
-            execution once the required
-            information is supplied.
-          </p>
-
-          <form
-            className="task-form"
-            onSubmit={handleContinue}
-          >
-            {
-              route.missing_variables.map(
-                (variable) => (
-                  <div
-                    key={variable}
-                  >
-                    <label
-                      htmlFor={
-                        `missing-${variable}`
-                      }
-                    >
-                      {variable}
-                    </label>
-
-                    <input
-                      id={
-                        `missing-${variable}`
-                      }
-                      value={
-                        missingInputs[
-                          variable
-                        ]
-                        ?? ""
-                      }
-                      onChange={(event) =>
-                        setMissingInputs(
-                          (
-                            current,
-                          ) => ({
-                            ...current,
-                            [variable]:
-                              event.target
-                                .value,
-                          }),
-                        )
-                      }
-                      placeholder={
-                        variable
-                        === "project_path"
-                          ? "~/Desktop/ghost"
-                          : variable
-                      }
-                    />
-                  </div>
-                ),
-              )
-            }
-
-            <div className="form-footer">
-              <span className="selected-skill-label">
-                Continuing{" "}
-                {route.skill}
+        <section className="input-request-panel">
+          <div className="input-request-header">
+            <div>
+              <span>
+                ADDITIONAL INPUT REQUIRED
               </span>
 
-              <button
-                type="submit"
-                disabled={
-                  isRunning
-                  || !backendOnline
-                }
-              >
-                {isRunning
-                  ? "Continuing..."
-                  : "Continue"}
-              </button>
+              <h2>
+                {questionForVariable(
+                  route
+                    .missing_variables[0],
+                  route.skill,
+                )}
+              </h2>
             </div>
+
+            <span>
+              {route.skill}
+            </span>
+          </div>
+
+          <form
+            className="continue-form"
+            onSubmit={handleContinue}
+          >
+            {route.missing_variables.map(
+              (variable) => (
+                <label
+                  key={variable}
+                  className="missing-field"
+                >
+                  <span>
+                    {variable}
+                  </span>
+
+                  <input
+                    value={
+                      missingInputs[
+                        variable
+                      ]
+                      ?? ""
+                    }
+                    onChange={(event) =>
+                      setMissingInputs(
+                        (
+                          current,
+                        ) => ({
+                          ...current,
+                          [variable]:
+                            event.target
+                              .value,
+                        }),
+                      )
+                    }
+                    placeholder={
+                      variable
+                      === "project_path"
+                        ? "~/Desktop/ghost"
+                        : variable
+                    }
+                  />
+                </label>
+              ),
+            )}
+
+            <button
+              type="submit"
+              className="continue-button"
+              disabled={
+                isRunning
+                || !backendOnline
+              }
+            >
+              CONTINUE
+            </button>
           </form>
         </section>
       )}
 
 
       {task && researchResult && (
-        <section className="panel result-panel">
-          <div className="result-header">
+        <section className="data-panel">
+          <div className="data-header">
             <div>
-              <p className="eyebrow">
+              <span className="micro-label">
                 RESEARCH RESULT
-              </p>
+              </span>
 
-              <h3>
+              <h2>
                 {researchResult.title
                   ?? task.query}
-              </h3>
+              </h2>
             </div>
 
-            <div
+            <span
               className={
                 task.success
-                  ? "result-badge success"
-                  : "result-badge failure"
+                  ? "verification-tag good"
+                  : "verification-tag bad"
               }
             >
               {task.success
-                ? "Verified"
-                : "Failed"}
-            </div>
+                ? "VERIFIED"
+                : "FAILED"}
+            </span>
           </div>
 
-          <div className="result-meta">
+          <div className="data-meta">
             <span>
-              Skill:{" "}
-              {task.skill ?? "Unknown"}
+              {task.skill}
             </span>
 
             <span>
-              Provider:{" "}
               {task.provider}
             </span>
 
             <span>
-              Task:{" "}
-              #{task.task_id}
+              TASK {task.task_id}
             </span>
           </div>
 
-          <div className="summary-card">
-            <p className="summary">
-              {researchResult.summary}
-            </p>
-          </div>
+          <p className="result-summary">
+            {researchResult.summary}
+          </p>
 
-          <div className="terms">
+          <div className="term-grid">
             {researchResult.key_terms.map(
               (term) => (
-                <span
-                  key={term}
-                  className="term"
-                >
+                <span key={term}>
                   {term}
                 </span>
               ),
@@ -865,8 +1007,8 @@ function App() {
               target="_blank"
               rel="noreferrer"
             >
-              View source
-              {" → "}
+              OPEN SOURCE //
+              {" "}
               {researchResult.domain}
             </a>
           )}
@@ -875,53 +1017,36 @@ function App() {
 
 
       {task && projectResult && (
-        <section className="panel project-result-panel">
-          <div className="result-header">
+        <section className="data-panel">
+          <div className="data-header">
             <div>
-              <p className="eyebrow">
+              <span className="micro-label">
                 PROJECT VERIFICATION
-              </p>
+              </span>
 
-              <h3>
+              <h2>
                 {
                   projectResult
                     .project
                     .project_path
                 }
-              </h3>
+              </h2>
             </div>
 
-            <div
+            <span
               className={
                 task.verified
-                  ? "result-badge success"
-                  : "result-badge failure"
+                  ? "verification-tag good"
+                  : "verification-tag bad"
               }
             >
               {task.verified
-                ? "Verified"
-                : "Failed"}
-            </div>
-          </div>
-
-          <div className="result-meta">
-            <span>
-              Skill:{" "}
-              {task.skill ?? "Unknown"}
-            </span>
-
-            <span>
-              Provider:{" "}
-              {task.provider}
-            </span>
-
-            <span>
-              Task:{" "}
-              #{task.task_id}
+                ? "VERIFIED"
+                : "FAILED"}
             </span>
           </div>
 
-          <div className="verification-stats">
+          <div className="verification-grid">
             <div>
               <strong>
                 {
@@ -932,7 +1057,7 @@ function App() {
               </strong>
 
               <span>
-                Checks
+                CHECKS
               </span>
             </div>
 
@@ -946,7 +1071,7 @@ function App() {
               </strong>
 
               <span>
-                Passed
+                PASSED
               </span>
             </div>
 
@@ -960,259 +1085,183 @@ function App() {
               </strong>
 
               <span>
-                Failed
+                FAILED
               </span>
             </div>
           </div>
 
-          <div className="detected-stack">
-            <p className="skill-section-title">
-              Detected Stack
-            </p>
-
-            <div className="terms">
-              {
-                projectResult
-                  .project
-                  .project_types
-                  .map(
-                    (type) => (
-                      <span
-                        key={type}
-                        className="term"
-                      >
-                        {type}
-                      </span>
-                    ),
-                  )
-              }
-            </div>
+          <div className="stack-row">
+            {projectResult
+              .project
+              .project_types
+              .map(
+                (type) => (
+                  <span key={type}>
+                    {type}
+                  </span>
+                ),
+              )}
           </div>
 
-          <div className="project-checks">
-            <p className="skill-section-title">
-              Verification Checks
-            </p>
-
-            {
-              projectResult
-                .checks
-                .map(
-                  (check) => (
-                    <div
-                      key={
-                        `${check.component}-${check.name}`
+          <div className="check-list">
+            {projectResult
+              .checks
+              .map(
+                (check) => (
+                  <div
+                    key={
+                      `${check.component}-${check.name}`
+                    }
+                    className="check-row"
+                  >
+                    <span
+                      className={
+                        check.success
+                          ? "check-node passed"
+                          : "check-node failed"
                       }
-                      className="project-check"
                     >
-                      <span
-                        className={
-                          check.success
-                            ? "check-icon passed"
-                            : "check-icon failed"
+                      {check.success
+                        ? "✓"
+                        : "×"}
+                    </span>
+
+                    <div>
+                      <strong>
+                        {check.name}
+                      </strong>
+
+                      <p>
+                        {check.component}
+                        {" // "}
+                        {
+                          check.command
+                            .join(" ")
                         }
-                      >
-                        {check.success
-                          ? "✓"
-                          : "×"}
-                      </span>
-
-                      <div>
-                        <strong>
-                          {check.name}
-                        </strong>
-
-                        <p>
-                          {check.component}
-                          {" · "}
-                          {
-                            check.command
-                              .join(" ")
-                          }
-                        </p>
-                      </div>
-
-                      <span
-                        className={
-                          check.success
-                            ? "check-status passed"
-                            : "check-status failed"
-                        }
-                      >
-                        {check.success
-                          ? "PASS"
-                          : "FAIL"}
-                      </span>
+                      </p>
                     </div>
-                  ),
-                )
-            }
+
+                    <span
+                      className={
+                        check.success
+                          ? "check-result passed"
+                          : "check-result failed"
+                      }
+                    >
+                      {check.success
+                        ? "PASS"
+                        : "FAIL"}
+                    </span>
+                  </div>
+                ),
+              )}
           </div>
         </section>
       )}
 
 
       {task && !task.result && (
-        <section className="panel error-panel">
-          <p className="eyebrow">
-            EXECUTION RESULT
-          </p>
+        <section className="alert-panel">
+          <span className="alert-code">
+            !
+          </span>
 
-          <h3>
-            GHOST did not return a result.
-          </h3>
+          <div>
+            <strong>
+              NO RESULT RETURNED
+            </strong>
 
-          <p>
-            {task.error
-              ?? "The selected skill completed without a usable result."}
-          </p>
+            <p>
+              {task.error
+                ?? "The selected skill completed without a usable result."}
+            </p>
+          </div>
         </section>
       )}
 
 
-      <section className="panel skills-panel">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">
-              CAPABILITIES
-            </p>
+      <section className="lower-grid">
+        <section className="data-panel">
+          <div className="data-header">
+            <div>
+              <span className="micro-label">
+                SKILL INSPECTOR
+              </span>
 
-            <h3>
-              Skills
-            </h3>
-          </div>
-
-          <span className="history-count">
-            {skills.length} available
-          </span>
-        </div>
-
-        {skills.length === 0 ? (
-          <div className="history-empty">
-            <p>
-              GHOST has no skills available.
-            </p>
-          </div>
-        ) : (
-          <div className="skills-layout">
-            <div className="skills-list">
-              {skills.map(
-                (skill) => (
-                  <button
-                    key={skill.name}
-                    type="button"
-                    className={
-                      selectedSkill?.name
-                      === skill.name
-                        ? "skill-card selected"
-                        : "skill-card"
-                    }
-                    onClick={() =>
-                      setSelectedSkill(
-                        skill,
-                      )
-                    }
-                  >
-                    <div className="skill-card-header">
-                      <span className="skill-status-dot" />
-
-                      <strong>
-                        {skill.name}
-                      </strong>
-                    </div>
-
-                    <p>
-                      {skill.description}
-                    </p>
-
-                    <div className="skill-card-meta">
-                      <span>
-                        {skill.variables.length}
-                        {" "}
-                        variables
-                      </span>
-
-                      <span>
-                        {skill.steps.length}
-                        {" "}
-                        steps
-                      </span>
-                    </div>
-                  </button>
-                ),
-              )}
+              <h2>
+                {selectedSkill?.name
+                  ?? "No skill selected"}
+              </h2>
             </div>
 
-            {selectedSkill && (
-              <div className="skill-detail">
-                <div className="skill-detail-top">
-                  <div>
-                    <p className="eyebrow">
-                      SKILL DEFINITION
-                    </p>
+            <span className="verification-tag good">
+              READY
+            </span>
+          </div>
 
-                    <h4>
-                      {selectedSkill.name}
-                    </h4>
-                  </div>
+          {selectedSkill && (
+            <>
+              <p className="inspector-description">
+                {selectedSkill.description}
+              </p>
 
-                  <span className="skill-ready">
-                    Ready
-                  </span>
-                </div>
+              <div className="inspector-section">
+                <span className="micro-label">
+                  VARIABLES
+                </span>
 
-                <p className="skill-description">
-                  {selectedSkill.description}
-                </p>
-
-                <div className="skill-section">
-                  <p className="skill-section-title">
-                    Inputs
-                  </p>
-
-                  <div className="variable-list">
-                    {selectedSkill.variables.map(
+                <div className="variable-grid">
+                  {selectedSkill
+                    .variables
+                    .map(
                       (variable) => (
                         <div
                           key={variable.name}
-                          className="variable-card"
+                          className="variable-node"
                         >
-                          <div className="variable-header">
-                            <strong>
-                              {variable.name}
-                            </strong>
+                          <strong>
+                            {variable.name}
+                          </strong>
 
-                            <code>
-                              {variable.example_value}
-                            </code>
-                          </div>
+                          <code>
+                            {
+                              variable
+                                .example_value
+                            }
+                          </code>
 
-                          {variable.description && (
-                            <p>
-                              {variable.description}
-                            </p>
-                          )}
+                          <p>
+                            {
+                              variable
+                                .description
+                            }
+                          </p>
                         </div>
                       ),
                     )}
-                  </div>
                 </div>
+              </div>
 
-                <div className="skill-section">
-                  <p className="skill-section-title">
-                    Steps
-                  </p>
+              <div className="inspector-section">
+                <span className="micro-label">
+                  EXECUTION SEQUENCE
+                </span>
 
-                  <div className="learned-steps">
-                    {selectedSkill.steps.map(
-                      (step, index) => (
+                <div className="step-list">
+                  {selectedSkill
+                    .steps
+                    .map(
+                      (
+                        step,
+                        index,
+                      ) => (
                         <div
                           key={
                             `${step.action_type}-${index}`
                           }
-                          className="learned-step"
+                          className="step-node"
                         >
-                          <span className="step-number">
+                          <span>
                             {String(
                               index + 1,
                             ).padStart(
@@ -1228,111 +1277,114 @@ function App() {
 
                             <p>
                               {step.target
-                                ?? "No target"}
+                                ?? "system"}
 
                               {step.value
-                                ? ` · ${step.value}`
+                                ? ` // ${step.value}`
                                 : ""}
                             </p>
                           </div>
                         </div>
                       ),
                     )}
-                  </div>
                 </div>
               </div>
+            </>
+          )}
+        </section>
+
+
+        <section className="data-panel">
+          <div className="data-header">
+            <div>
+              <span className="micro-label">
+                MEMORY
+              </span>
+
+              <h2>
+                Recent Executions
+              </h2>
+            </div>
+
+            <span className="memory-count">
+              {taskHistory.length}
+            </span>
+          </div>
+
+          <div className="memory-list">
+            {taskHistory.length === 0 && (
+              <div className="empty-memory">
+                NO EXECUTIONS RECORDED
+              </div>
             )}
-          </div>
-        )}
-      </section>
 
-
-      <section className="panel history-panel">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">
-              MEMORY
-            </p>
-
-            <h3>
-              Recent Runs
-            </h3>
-          </div>
-
-          <span className="history-count">
-            {taskHistory.length} saved
-          </span>
-        </div>
-
-        {taskHistory.length === 0 ? (
-          <div className="history-empty">
-            <p>
-              GHOST has no saved runs yet.
-            </p>
-          </div>
-        ) : (
-          <div className="history-list">
             {taskHistory.map(
               (historyTask) => (
                 <button
-                  key={historyTask.task_id}
+                  key={
+                    historyTask.task_id
+                  }
                   type="button"
-                  className="history-item"
+                  className="memory-row"
                   onClick={() =>
                     openHistoryTask(
                       historyTask,
                     )
                   }
                 >
-                  <div className="history-main">
-                    <span
-                      className={
-                        historyTask.verified
-                          ? "history-indicator verified"
-                          : "history-indicator failed"
-                      }
-                    />
+                  <span
+                    className={
+                      historyTask.verified
+                        ? "memory-light good"
+                        : "memory-light bad"
+                    }
+                  />
 
-                    <div>
-                      <strong>
-                        {historyTask.query}
-                      </strong>
+                  <span className="memory-content">
+                    <strong>
+                      {historyTask.query}
+                    </strong>
 
-                      <p>
-                        {historyTask.skill
-                          ?? "Unknown skill"}
-                        {" · "}
-                        {historyTask.provider}
-                      </p>
-                    </div>
-                  </div>
+                    <small>
+                      {historyTask.skill
+                        ?? "unknown"}
+                      {" // "}
+                      {historyTask.provider}
+                    </small>
+                  </span>
 
-                  <div className="history-meta">
-                    <span
-                      className={
-                        historyTask.verified
-                          ? "history-status verified"
-                          : "history-status failed"
-                      }
-                    >
+                  <span className="memory-right">
+                    <b>
                       {historyTask.verified
-                        ? "Verified"
-                        : historyTask.status}
-                    </span>
+                        ? "VERIFIED"
+                        : historyTask.status
+                          .toUpperCase()}
+                    </b>
 
-                    <time>
+                    <small>
                       {formatTaskDate(
                         historyTask
                           .created_at,
                       )}
-                    </time>
-                  </div>
+                    </small>
+                  </span>
                 </button>
               ),
             )}
           </div>
-        )}
+        </section>
       </section>
+
+
+      <footer className="system-footer">
+        <span>
+          GHOST
+        </span>
+
+        <span>
+          OBSERVE // LEARN // AUTOMATE
+        </span>
+      </footer>
     </main>
   );
 }
